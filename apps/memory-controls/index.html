@@ -50,7 +50,16 @@
   <!-- ── Who am I / refresh ─────────────────────────────────────────── -->
   <div class="card">
     <label>Your account (subject ID)</label>
-    <input id="subjectId" value="u_synth_001" />
+    <input id="subjectId" value="u_synth_001" list="knownSubjects" />
+    <datalist id="knownSubjects">
+      <option value="u_synth_001">stable taste + a correction</option>
+      <option value="u_synth_002">playlist exclusion</option>
+      <option value="u_synth_003">multilingual</option>
+      <option value="u_synth_004">sparse history</option>
+      <option value="u_synth_005">adversarial text</option>
+      <option value="u_synth_006">temporary vs durable</option>
+      <option value="demo">demo</option>
+    </datalist>
     <label>Where you are using Spotify (surface)</label>
     <input id="surface" value="music_chat" />
     <div class="actions">
@@ -62,17 +71,8 @@
   <h3>What Spotify remembers about you</h3>
   <div id="memoryCards"></div>
 
-  <!-- ── §5.2 "correct" ─────────────────────────────────────────────── -->
-  <div class="card">
-    <h3>Something wrong? Correct it</h3>
-    <p class="muted">Your correction wins. The old version is kept as history, never silently overwritten.</p>
-    <label>Which memory (paste the memory ID from a card above)</label>
-    <input id="correctMemoryId" placeholder="mem_..." />
-    <label>What it should say instead</label>
-    <input id="correctText" placeholder="e.g. I actually prefer instrumental piano" />
-    <div class="actions"><button onclick="correctMemory()">Submit correction</button></div>
-    <div id="correctStatus"></div>
-  </div>
+  <!-- Correcting happens on the card itself (§5.5 Usability: "avoid exposing
+       raw graph internals") — a person never sees or types a memory id. -->
 
   <!-- ── §5.2 "pause" ───────────────────────────────────────────────── -->
   <div class="card">
@@ -171,7 +171,11 @@ async function loadMemories() {
     (ctx.items || []).forEach(i => extra[i.memory_id] = i);
 
     if (!search.results || search.results.length === 0) {
-      box.innerHTML = `<div class="card">Nothing remembered yet for this account on this surface.</div>`;
+      box.innerHTML = `<div class="card">
+        <strong>Nothing remembered yet for "${subject_id}".</strong>
+        <p class="muted">That account has no memories on this surface. Try one of the
+        suggestions in the account box above, or send an event for this account first.</p>
+      </div>`;
       return;
     }
 
@@ -180,16 +184,33 @@ async function loadMemories() {
       const when = e.recorded_at ? new Date(e.recorded_at).toLocaleString() : "—";
       const src  = e.source_class === "explicit_statement" ? "you told Spotify this"
                  : e.source_class ? "worked out from your listening" : "—";
+      // The memory id is carried on the element, never shown or typed.
+      const kind = { explicit_preference: "You told us this",
+                     exclusion: "Something you don't want",
+                     correction: "A correction you made",
+                     candidate_preference: "A guess, not confirmed",
+                     episode: "Something you did once" }[r.memory_type] || r.memory_type;
+      const sure = r.confidence >= 0.9 ? "We're confident about this"
+                 : r.confidence >= 0.6 ? "We're fairly sure"
+                 : "We're not certain";
       return `
-      <div class="card">
+      <div class="card" data-id="${r.memory_id}">
         <div class="fact">"${r.fact}"</div>
         <div class="meta">
-          Recorded: ${when} &nbsp;·&nbsp; Source: ${src}<br>
-          Type: ${r.memory_type} &nbsp;·&nbsp; Confidence: ${r.confidence}<br>
-          ID: ${r.memory_id}
+          ${kind} &nbsp;·&nbsp; ${src} &nbsp;·&nbsp; ${when}<br>${sure}
         </div>
         <div class="actions">
-          <button class="danger" onclick="deleteMemory('${r.memory_id}')">Remove this memory</button>
+          <button onclick="startEdit(this)">That's wrong — fix it</button>
+          <button class="danger" onclick="deleteMemory('${r.memory_id}')">Forget this</button>
+        </div>
+        <div class="editor" style="display:none;">
+          <label>What should it say instead?</label>
+          <input class="editText" value="${r.fact.replace(/"/g, "&quot;")}" />
+          <div class="actions">
+            <button class="primary" onclick="saveEdit(this)">Save correction</button>
+            <button onclick="cancelEdit(this)">Cancel</button>
+          </div>
+          <div class="editStatus"></div>
         </div>
       </div>`;
     }).join("");
@@ -223,7 +244,6 @@ async function deleteMemory(memoryId) {
     out.innerHTML = `
       <div class="status ${allDone ? "ok" : "err"}">
         ${allDone ? "Removed everywhere." : "Not fully removed — see below."}
-        &nbsp;Job: ${job.job_id}
       </div>
       <table><tr><th>Where it was stored</th><th>Status</th></tr>${rows}</table>
       <p class="muted">"Backups: scheduled" means backups erase on their own timetable — this is tracked, not skipped.</p>`;
@@ -233,31 +253,44 @@ async function deleteMemory(memoryId) {
   }
 }
 
-// ── correct ──────────────────────────────────────────────────────────
-async function correctMemory() {
-  const memory_id     = document.getElementById("correctMemoryId").value.trim();
-  const new_fact_text = document.getElementById("correctText").value.trim();
-  const el = document.getElementById("correctStatus");
-  if (!memory_id || !new_fact_text) {
-    el.innerHTML = `<div class="status warn">Please fill in both boxes.</div>`; return;
+// ── correct, on the card itself ──────────────────────────────────────
+// A person edits the sentence they can see. The memory id travels on the
+// element, so no identifier is ever shown or typed (§5.5 Usability).
+function startEdit(btn) {
+  const card = btn.closest(".card");
+  card.querySelector(".editor").style.display = "block";
+  card.querySelector(".editText").focus();
+}
+
+function cancelEdit(btn) {
+  btn.closest(".card").querySelector(".editor").style.display = "none";
+}
+
+async function saveEdit(btn) {
+  const card = btn.closest(".card");
+  const memory_id = card.dataset.id;
+  const new_fact_text = card.querySelector(".editText").value.trim();
+  const el = card.querySelector(".editStatus");
+
+  if (!new_fact_text) {
+    el.innerHTML = `<div class="status warn">Please type what it should say.</div>`; return;
   }
+  el.innerHTML = `<div class="muted">saving…</div>`;
   try {
     const res = await fetch(`${PROCESSOR_URL}/v1/memories/${memory_id}`, {
       method:"PATCH", headers:{"Content-Type":"application/json"},
       body: JSON.stringify({ action:"correct", new_fact_text,
                              reason:"user correction via memory controls", expected_version:"" })
     });
-    const data = await res.json();
     if (!res.ok) {
-      el.innerHTML = `<div class="status err">That memory ID was not found.</div>`; return;
+      el.innerHTML = `<div class="status err">Couldn't save that — please try again.</div>`; return;
     }
     el.innerHTML = `<div class="status ok">
-      Corrected. New memory: ${data.new_memory_id}<br>
-      The old one is kept as history, marked "superseded".
+      Updated. Spotify will use your version from now on.
     </div>`;
-    loadMemories();
+    setTimeout(loadMemories, 900);
   } catch (e) {
-    el.innerHTML = `<div class="status err">Could not reach the memory service on port 8006.</div>`;
+    el.innerHTML = `<div class="status err">Couldn't reach Spotify just now.</div>`;
   }
 }
 

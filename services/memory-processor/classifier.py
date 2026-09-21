@@ -83,3 +83,33 @@ def classify(event: InteractionEvent) -> List[ExtractionCandidate]:
     # opt_out / delete_request never produce memories — they are handled by
     # deletion-orchestrator, not memory-processor.
     return candidates
+
+
+def extract_candidates(event: InteractionEvent) -> List[ExtractionCandidate]:
+    """The extraction entry point used by both the API and the queue consumer.
+
+    §5.4: "Assign confidence and policy class using deterministic rules PLUS
+    structured model output." Both run; this merges them.
+
+    The deterministic result is the floor — it is reproducible and cannot fail.
+    Model candidates are added on top, and where both produced the same
+    memory_id the deterministic one wins, so a model cannot quietly downgrade
+    or reclassify a fact the rules already decided (§7.5 Memory safety).
+    """
+    deterministic = classify(event)
+
+    try:
+        import llm_extractor
+        if not llm_extractor.is_enabled():
+            return deterministic
+        model_candidates = llm_extractor.get_llm_candidates(event)
+    except Exception:
+        return deterministic
+
+    seen = {c.memory_id for c in deterministic}
+    merged = list(deterministic)
+    for cand in model_candidates:
+        if cand.memory_id not in seen:
+            merged.append(cand)
+            seen.add(cand.memory_id)
+    return merged

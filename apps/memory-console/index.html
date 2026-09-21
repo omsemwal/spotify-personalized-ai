@@ -332,7 +332,8 @@ async function runExplorer() {
         body: JSON.stringify({ subject_id, surface, intent:"" }) }).then(r=>r.json())
     ]);
     if (!s.results || !s.results.length) {
-      out.innerHTML = `<div class="card">No memories for this subject on this surface.</div>`; return;
+      out.innerHTML = `<div class="card">No memories for subject "${subject_id}" on surface "${surface}".
+      <p class="muted">Check the subject exists — the seeded ones are u_synth_001 to u_synth_006.</p></div>`; return;
     }
     const meta = {}; (c.items||[]).forEach(i => meta[i.memory_id] = i);
     // newest first = the timeline

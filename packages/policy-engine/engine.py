@@ -12,12 +12,12 @@ try:
     # future rename without the hyphen, or via importlib with a package spec).
     from .registry import REGISTRY, BLOCKED_INFERRED_CATEGORIES, PolicyRegistryEntry
 except ImportError:
-    # Actual path taken today: packages/pathutil's bootstrap_imports() adds
-    # packages/policy-engine itself onto sys.path (because the hyphen in the
-    # directory name makes `packages.policy-engine` invalid Python syntax),
-    # so this module is imported as a bare top-level module with no parent
-    # package — a relative import has nothing to resolve against. Import
-    # registry.py the same way, as a sibling top-level module, instead.
+    # Actual path taken today: each service inserts packages/policy-engine
+    # onto sys.path at startup (the hyphen in the directory name makes
+    # `packages.policy-engine` invalid Python syntax), so this module is
+    # imported as a bare top-level module with no parent package — a relative
+    # import has nothing to resolve against. Import registry.py the same way,
+    # as a sibling top-level module, instead.
     from registry import REGISTRY, BLOCKED_INFERRED_CATEGORIES, PolicyRegistryEntry
 
 

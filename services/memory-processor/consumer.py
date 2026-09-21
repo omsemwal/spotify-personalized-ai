@@ -18,7 +18,7 @@ from datetime import datetime, timezone
 from packages.contracts import InteractionEvent, Memory
 from engine import PolicyContext, PolicyEngine
 
-from classifier import classify
+from classifier import extract_candidates
 
 log = logging.getLogger("memory-processor.consumer")
 
@@ -40,7 +40,7 @@ def process_event(event: InteractionEvent, store) -> list[str]:
         surface_policy=["continuity", "personalization", "correction"],
     )
 
-    for candidate in classify(event):
+    for candidate in extract_candidates(event):
         if candidate.decision != "accept":
             continue
 

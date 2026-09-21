@@ -25,7 +25,7 @@ from packages.contracts import (
 )
 from engine import PolicyContext, PolicyEngine
 
-from classifier import classify
+from classifier import extract_candidates
 from consumer import start_consumer
 from store_factory import get_graph_store
 
@@ -71,7 +71,7 @@ def health_check():
 def extract(event: InteractionEvent):
     """Deterministic validation entry point — converts one approved event into
     typed candidates WITHOUT writing to the graph (§7.3 endpoint #2)."""
-    candidates = classify(event)
+    candidates = extract_candidates(event)
     if not candidates:
         return ExtractionResult(event_id=event.event_id, candidates=[], rejected_reason="no_memory_eligible_content")
     return ExtractionResult(event_id=event.event_id, candidates=candidates)
