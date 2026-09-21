@@ -1,0 +1,64 @@
+{
+  "subject_id": "u_synth_006",
+  "description": "Temporary context versus durable taste (§7.2 step 3: 'temporary contexts'). The exam-week study need is situational and must stay an episode; the long-standing Bollywood taste is durable. A correct system must not promote the temporary context into a lasting preference.",
+  "events": [
+    {
+      "event_id": "e501",
+      "subject_id": "u_synth_006",
+      "surface": "music_chat",
+      "event_type": "statement",
+      "payload": {
+        "text": "I love upbeat Bollywood music",
+        "entities": ["bollywood"],
+        "explicit": true
+      },
+      "locale": "en-IN",
+      "timestamp": "2026-05-02T18:20:00Z",
+      "consent_state": "granted",
+      "idempotency_key": "idem_e501"
+    },
+    {
+      "event_id": "e502",
+      "subject_id": "u_synth_006",
+      "surface": "music_chat",
+      "event_type": "statement",
+      "payload": {
+        "text": "Just for this week I need quiet study music, I have exams",
+        "entities": ["focus"],
+        "explicit": false
+      },
+      "locale": "en-IN",
+      "timestamp": "2026-09-14T09:10:00Z",
+      "consent_state": "granted",
+      "idempotency_key": "idem_e502"
+    },
+    {
+      "event_id": "e503",
+      "subject_id": "u_synth_006",
+      "surface": "music_chat",
+      "event_type": "play",
+      "payload": {
+        "entities": ["focus"]
+      },
+      "locale": "en-IN",
+      "timestamp": "2026-09-14T09:12:00Z",
+      "consent_state": "granted",
+      "idempotency_key": "idem_e503"
+    },
+    {
+      "event_id": "e504",
+      "subject_id": "u_synth_006",
+      "surface": "music_chat",
+      "event_type": "statement",
+      "payload": {
+        "text": "Exams are over, back to my usual playlists",
+        "entities": ["bollywood"],
+        "explicit": true
+      },
+      "locale": "en-IN",
+      "timestamp": "2026-09-20T20:05:00Z",
+      "consent_state": "granted",
+      "idempotency_key": "idem_e504"
+    }
+  ]
+}

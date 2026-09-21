@@ -1,0 +1,18 @@
+{
+  "subject_id": "u_synth_001",
+  "description": "Stable taste + evolving interest + one correction, across 3 sessions (music_chat surface).",
+  "events": [
+    {"event_id":"e001","subject_id":"u_synth_001","surface":"music_chat","event_type":"statement",
+     "payload":{"text":"I like low-vocal focus playlists while working","entities":["low-vocal","focus"],"explicit":true},
+     "locale":"en-US","timestamp":"2026-06-01T09:00:00Z","consent_state":"granted","idempotency_key":"idem_e001"},
+    {"event_id":"e002","subject_id":"u_synth_001","surface":"music_chat","event_type":"play",
+     "payload":{"entities":["lofi"]},
+     "locale":"en-US","timestamp":"2026-06-01T09:05:00Z","consent_state":"granted","idempotency_key":"idem_e002"},
+    {"event_id":"e003","subject_id":"u_synth_001","surface":"music_chat","event_type":"statement",
+     "payload":{"text":"Actually I don't want lofi anymore, give me instrumental piano instead","entities":["instrumental"],"explicit":true},
+     "locale":"en-US","timestamp":"2026-06-08T09:00:00Z","consent_state":"granted","idempotency_key":"idem_e003"},
+    {"event_id":"e004","subject_id":"u_synth_001","surface":"music_chat","event_type":"correction",
+     "payload":{"text":"Correction: I meant instrumental piano specifically, not all instrumental genres","entities":["instrumental"]},
+     "locale":"en-US","timestamp":"2026-06-08T09:01:00Z","consent_state":"granted","idempotency_key":"idem_e004"}
+  ]
+}

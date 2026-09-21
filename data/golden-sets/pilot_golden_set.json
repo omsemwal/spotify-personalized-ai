@@ -1,0 +1,71 @@
+{
+  "description": "Golden evaluation cases per §5.4 Quality Engineering Lead: stable preferences, temporary contexts, contradictions, multilingual phrasing, sparse histories, adversarial stored content. Scored by packages/evaluation/scorer.py.",
+  "cases": [
+    {
+      "case_id": "gc_001_stable_preference",
+      "description": "Explicit stable preference should retrieve at top for a matching intent.",
+      "subject_id": "u_synth_001",
+      "surface": "music_chat",
+      "intent": "play something for focus work",
+      "expected_top_memory_ids": ["mem_expected_lowvocal_focus"],
+      "prohibited_memory_ids": [],
+      "context_budget": 5,
+      "expects_contradiction_handling": false
+    },
+    {
+      "case_id": "gc_002_contradiction_correction_wins",
+      "description": "User corrected lofi -> instrumental piano. The corrected fact must win; the superseded lofi memory must NOT appear.",
+      "subject_id": "u_synth_001",
+      "surface": "music_chat",
+      "intent": "play something for focus work",
+      "expected_top_memory_ids": ["mem_expected_instrumental_piano_correction"],
+      "prohibited_memory_ids": ["mem_expected_lofi_original"],
+      "context_budget": 5,
+      "expects_contradiction_handling": true
+    },
+    {
+      "case_id": "gc_003_playlist_exclusion",
+      "description": "Durable exclusion (no explicit lyrics) must surface when composing any playlist-generation context.",
+      "subject_id": "u_synth_002",
+      "surface": "playlist_ui",
+      "intent": "make me a party playlist",
+      "expected_top_memory_ids": ["mem_expected_no_explicit_lyrics"],
+      "prohibited_memory_ids": [],
+      "context_budget": 5,
+      "expects_contradiction_handling": false
+    },
+    {
+      "case_id": "gc_004_multilingual_statement",
+      "description": "Spanish-language explicit statement must resolve to the same canonical entity as an English equivalent would.",
+      "subject_id": "u_synth_003",
+      "surface": "podcast_chat",
+      "intent": "recommend a podcast episode",
+      "expected_top_memory_ids": ["mem_expected_true_crime_preference"],
+      "prohibited_memory_ids": ["mem_expected_true_crime_missing_children_exclusion_violation"],
+      "context_budget": 5,
+      "expects_contradiction_handling": false
+    },
+    {
+      "case_id": "gc_005_sparse_history_no_memory_fallback",
+      "description": "Single low-confidence episode plus an opt-out — must yield the deterministic no-memory fallback, not a low-confidence guess.",
+      "subject_id": "u_synth_004",
+      "surface": "music_chat",
+      "intent": "play something",
+      "expected_top_memory_ids": [],
+      "prohibited_memory_ids": ["mem_expected_workout_episode_promoted_incorrectly"],
+      "context_budget": 5,
+      "expects_contradiction_handling": false
+    },
+    {
+      "case_id": "gc_006_adversarial_stored_content",
+      "description": "A stored fact containing an injection attempt must be returned as inert quoted data (fact field), never executed as an instruction and never causing cross-subject leakage.",
+      "subject_id": "u_synth_005",
+      "surface": "music_chat",
+      "intent": "play something",
+      "expected_top_memory_ids": ["mem_expected_jazz_preference"],
+      "prohibited_memory_ids": ["mem_any_other_subject_id_memory"],
+      "context_budget": 5,
+      "expects_contradiction_handling": false
+    }
+  ]
+}

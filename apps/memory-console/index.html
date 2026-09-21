@@ -1,0 +1,661 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Memory Experience Console — Spotify</title>
+<!--
+  Internal consoles required by §5.2, one tab each:
+    Overview          -> Operations Monitor (§5.2) + §7.6 "Overview"
+    Memory Explorer   -> Memory Experience Console (§5.2) + §7.6 explorer
+    Context Preview   -> §7.6 "Context preview"
+    Graph & Schema    -> Graph and Schema Console (§5.2) + §7.6 schema/policy view
+    Quality           -> Retrieval Quality Dashboard (§5.2) + §7.6 "Quality review"
+    Policy & Audit    -> Policy Review Panel (§5.2) + §7.6 "Audit trace"
+  Every number shown is measured from a live API call. Anything the pilot does
+  not instrument is labelled "not instrumented" instead of being invented.
+-->
+<style>
+  body { font-family:-apple-system, Segoe UI, sans-serif; margin:0; background:#0b0b0f; color:#eaeaf0; }
+  header { padding:14px 24px; border-bottom:1px solid #262633; display:flex; justify-content:space-between; align-items:center; }
+  h1 { font-size:17px; margin:0; }
+  nav { display:flex; gap:4px; padding:0 18px; border-bottom:1px solid #262633; flex-wrap:wrap; }
+  nav button { background:none; border:none; border-bottom:2px solid transparent; color:#9a9ab0; padding:11px 13px; cursor:pointer; font-size:13px; }
+  nav button.active { color:#eaeaf0; border-bottom-color:#1db954; }
+  main { padding:22px; max-width:1000px; margin:0 auto; }
+  section { display:none; } section.active { display:block; }
+  h2 { font-size:16px; margin:0 0 4px; }
+  h3 { font-size:14px; margin:18px 0 8px; }
+  .sub { color:#9a9ab0; font-size:12.5px; margin:0 0 14px; }
+  .card { background:#14141c; border:1px solid #262633; border-radius:10px; padding:15px 17px; margin-bottom:13px; }
+  .tiles { display:grid; grid-template-columns:repeat(auto-fit,minmax(165px,1fr)); gap:11px; margin-bottom:13px; }
+  .tile { background:#14141c; border:1px solid #262633; border-radius:10px; padding:13px 15px; }
+  .tile .k { font-size:11.5px; color:#9a9ab0; }
+  .tile .v { font-size:21px; margin-top:5px; font-weight:600; }
+  .v.good { color:#7de8a4; } .v.bad { color:#ff9f9f; } .v.na { color:#6b6b80; font-size:13px; font-weight:400; }
+  label { display:block; font-size:12px; color:#9a9ab0; margin:10px 0 4px; }
+  input { width:100%; box-sizing:border-box; background:#0b0b0f; border:1px solid #333; color:#eaeaf0; padding:8px; border-radius:6px; }
+  button.go { background:#1db954; color:#04140a; border:none; font-weight:600; padding:8px 16px; border-radius:16px; cursor:pointer; font-size:12.5px; margin-top:12px; }
+  button.alt { background:transparent; color:#eaeaf0; border:1px solid #444; padding:7px 14px; border-radius:16px; cursor:pointer; font-size:12px; margin-top:12px; }
+  table { width:100%; border-collapse:collapse; font-size:12.5px; margin-top:9px; }
+  th,td { text-align:left; padding:7px 9px; border-bottom:1px solid #262633; vertical-align:top; }
+  th { color:#9a9ab0; font-weight:500; }
+  .pill { font-size:11px; padding:2px 8px; border-radius:10px; border:1px solid #333; color:#9a9ab0; white-space:nowrap; }
+  .pill.on { background:#123420; color:#7de8a4; border-color:#1db954; }
+  .pill.off { background:#3a1111; color:#ff9f9f; border-color:#7a3030; }
+  .pill.warn { background:#3a3111; color:#ffd98a; border-color:#7a6620; }
+  pre { background:#0b0b0f; border:1px solid #262633; border-radius:8px; padding:11px; font-size:11.5px; overflow:auto; max-height:320px; }
+  .muted { color:#9a9ab0; font-size:12px; }
+  .note { background:#171722; border-left:3px solid #444; padding:9px 12px; font-size:12px; color:#9a9ab0; border-radius:0 6px 6px 0; margin:10px 0; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Memory Experience Console</h1>
+  <span id="healthBadge" class="pill">checking…</span>
+</header>
+
+<nav>
+  <button class="active" onclick="show('overview',this)">Overview</button>
+  <button onclick="show('explorer',this)">Memory Explorer</button>
+  <button onclick="show('context',this)">Context Preview</button>
+  <button onclick="show('schema',this)">Graph &amp; Schema</button>
+  <button onclick="show('quality',this)">Quality</button>
+  <button onclick="show('policy',this)">Policy &amp; Audit</button>
+</nav>
+
+<main>
+
+<!-- ══ 1. OVERVIEW / OPERATIONS MONITOR ══════════════════════════════ -->
+<section id="overview" class="active">
+  <h2>Overview</h2>
+  <p class="sub">Service health, queue health, retrieval latency, fallback rate and deletion propagation. Press Run checks to measure live.</p>
+  <button class="go" onclick="runOverview()">Run checks</button>
+  <div class="tiles" id="opTiles"></div>
+  <h3>Service health</h3>
+  <div id="svcTable"></div>
+  <h3>Deletion propagation</h3>
+  <div id="delTable"><p class="muted">Delete a memory from the Memory Controls page, then run checks to see per-store status here.</p></div>
+  <div class="note">
+    Ingestion lag, write failures, retries and experiment status are <strong>not instrumented</strong>:
+    no API in §7.3 reports them, and this monitor only reads — it never writes events into the system
+    to manufacture a measurement. Quality metrics come from the Quality tab once the golden set is run.
+  </div>
+</section>
+
+<!-- ══ 2. MEMORY EXPLORER ════════════════════════════════════════════ -->
+<section id="explorer">
+  <h2>Subject-scoped memory explorer</h2>
+  <p class="sub">Approved support or test identities only. Shows the timeline, source type, confidence and status, with provenance for any memory.</p>
+  <div class="card">
+    <label>Subject ID</label><input id="expSubject" value="u_synth_001" />
+    <label>Surface</label><input id="expSurface" value="music_chat" />
+    <button class="go" onclick="runExplorer()">Search memories</button>
+  </div>
+  <div id="expOut"></div>
+  <div id="provOut"></div>
+</section>
+
+<!-- ══ 3. CONTEXT PREVIEW ════════════════════════════════════════════ -->
+<section id="context">
+  <h2>Context preview</h2>
+  <p class="sub">Enter an intent and see candidate retrieval, ranking, what policy removed, the final context pack and token usage.</p>
+  <div class="card">
+    <label>Subject ID</label><input id="ctxSubject" value="u_synth_001" />
+    <label>Surface</label><input id="ctxSurface" value="music_chat" />
+    <label>Current intent</label><input id="ctxIntent" value="play something for focus work" />
+    <button class="go" onclick="runContext()">Compose context</button>
+  </div>
+  <div id="ctxOut"></div>
+</section>
+
+<!-- ══ 4. GRAPH & SCHEMA CONSOLE ═════════════════════════════════════ -->
+<section id="schema">
+  <h2>Graph and schema console</h2>
+  <p class="sub">Read-only for most roles. Graph ontology, memory types, relationship rules, retention classes and migration status.</p>
+  <h3>Graph ontology — what exists in the graph</h3>
+  <div id="ontologyOut"></div>
+  <h3>Memory types, sensitivity and retention</h3>
+  <p class="muted">Mirrors the governed policy registry (<code>packages/policy-engine/registry.py</code>). Changing it requires data-governance approval.</p>
+  <div id="registryOut"></div>
+  <h3>Contract versions and rollout state</h3>
+  <p class="muted">Read live from each service's own OpenAPI document.</p>
+  <div id="versionOut"></div>
+  <h3>Migration status</h3>
+  <div id="migrationOut"></div>
+</section>
+
+<!-- ══ 5. RETRIEVAL QUALITY DASHBOARD ════════════════════════════════ -->
+<section id="quality">
+  <h2>Retrieval quality</h2>
+  <p class="sub">Golden-set runs including contradiction, multilingual and sparse-history cases, plus the confidence distribution of what is actually retrieved.</p>
+  <button class="go" onclick="runQuality()">Run golden set</button>
+  <div class="tiles" id="qTiles"></div>
+  <div id="qOut"></div>
+  <h3>Failure clusters</h3>
+  <div id="clusterOut"><p class="muted">Run the golden set to group outcomes.</p></div>
+  <h3>Confidence distribution</h3>
+  <div id="confOut"><p class="muted">Run the golden set to measure.</p></div>
+  <h3>Memory-enabled vs memory-disabled</h3>
+  <p class="muted">The same intent, composed with memory and against the deterministic no-memory baseline.</p>
+  <div id="sideOut"></div>
+  <div class="note">
+    Three numbers here are honestly unavailable rather than estimated.
+    <strong>Precision and recall</strong>: the golden cases name synthetic IDs
+    (<code>mem_expected_…</code>) that are not seeded, so there is nothing to score against.
+    <strong>Contradiction rate</strong>: proving a superseded fact was suppressed needs to read
+    superseded memories, and search only ever returns active ones.
+    <strong>Experiment outcomes</strong>: no §7.3 endpoint reports cohort results.
+    Everything else on this tab is measured live.
+  </div>
+</section>
+
+<!-- ══ 6. POLICY REVIEW PANEL / AUDIT TRACE ══════════════════════════ -->
+<section id="policy">
+  <h2>Policy review and audit trace</h2>
+  <p class="sub">Policy decisions, blocked sensitive categories, consent state, and the authorised trace of a response.</p>
+  <h3>Blocked inferred categories</h3>
+  <p class="muted">Never stored as durable memory by default (§5.4 privacy requirement).</p>
+  <div id="blockedOut"></div>
+  <h3>Consent state</h3>
+  <div id="consentOut"></div>
+  <h3>Audit trace</h3>
+  <div class="card">
+    <label>Trace ID (from Context Preview)</label>
+    <input id="traceId" placeholder="paste a trace_id" />
+    <button class="go" onclick="loadTrace()">Load trace</button>
+  </div>
+  <div id="traceOut"></div>
+  <div class="note">
+    MCP tool calls are recorded by <code>services/memory-mcp-server/audit.py</code>, but the pilot
+    exposes <strong>no endpoint</strong> to read that log, so it cannot be shown here.
+  </div>
+</section>
+
+</main>
+
+<script>
+// ── service addresses ────────────────────────────────────────────────
+// Everything goes through the single API gateway (§6.4 step 3).
+const GATEWAY = "http://localhost:8080";
+const S = { ing:GATEWAY, ret:GATEWAY, ctx:GATEWAY, del:GATEWAY, mcp:GATEWAY, proc:GATEWAY };
+// No credentials are needed here: this console only reads.
+
+// Health is still checked per service (direct ports) so the monitor can tell
+// WHICH service is down, not just that the gateway answered.
+const SERVICES = [
+  ["API Gateway", "http://localhost:8080"],
+  ["Ingestion API", "http://localhost:8001"], ["Retrieval API", "http://localhost:8002"],
+  ["Context Composer", "http://localhost:8003"], ["Deletion Orchestrator", "http://localhost:8004"],
+  ["MCP Server", "http://localhost:8005"], ["Memory Processor", "http://localhost:8006"],
+];
+
+// Golden cases mirrored from data/golden-sets/pilot_golden_set.json
+const GOLDEN = [
+  { id:"gc_001_stable_preference",            subject:"u_synth_001", surface:"music_chat",   intent:"play something for focus work", kind:"stable preference" },
+  { id:"gc_002_contradiction_correction_wins",subject:"u_synth_001", surface:"music_chat",   intent:"play something for focus work", kind:"contradiction" },
+  { id:"gc_003_playlist_exclusion",           subject:"u_synth_002", surface:"playlist_ui",  intent:"make me a party playlist",      kind:"exclusion" },
+  { id:"gc_004_multilingual_statement",       subject:"u_synth_003", surface:"podcast_chat", intent:"recommend a podcast episode",   kind:"multilingual" },
+  { id:"gc_005_sparse_history_no_memory_fallback", subject:"u_synth_004", surface:"music_chat", intent:"play something",             kind:"sparse history" },
+  { id:"gc_006_adversarial_stored_content",   subject:"u_synth_005", surface:"music_chat",   intent:"play something",                kind:"adversarial text" },
+];
+
+// Policy registry mirrored from packages/policy-engine/registry.py
+const REGISTRY = [
+  ["episode",              "normal", "continuity, personalization",              30,  "no"],
+  ["explicit_preference",  "normal", "continuity, personalization, correction", 365,  "no"],
+  ["candidate_preference", "normal", "personalization",                          90,  "yes"],
+  ["exclusion",            "normal", "personalization, safety",                 365,  "no"],
+  ["correction",           "normal", "continuity, correction",                  365,  "no"],
+];
+const BLOCKED = ["emotional_state","mood_inference","mental_health_inference",
+                 "medical_inference","political_affiliation_inference"];
+
+// Graph shape from packages/graph-schema/graph.py
+const ONTOLOGY = [
+  ["User",   "id",                                      "one per subject"],
+  ["Memory", "memory_id, fact_text, memory_type, confidence, policy_class, source_event_id, valid_from, valid_to, status, recorded_at", "one per remembered fact"],
+  ["Entity", "name",                                    "artist, genre, topic etc."],
+];
+const RELATIONSHIPS = [
+  ["(User)-[:HAS_MEMORY]->(Memory)", "which memories belong to a subject; the isolation boundary"],
+  ["(Memory)-[:ABOUT]->(Entity)",    "what the memory is about"],
+  ["(Memory)-[:SUPERSEDES]->(Memory)","a correction replacing an earlier fact, keeping history"],
+];
+const MIGRATIONS = [
+  ["001_neo4j_constraints.cypher",     "Neo4j", "uniqueness constraints and indexes"],
+  ["001_postgres_operational_store.sql","Postgres","operational tables — not applied, Postgres is not running"],
+];
+
+let lastDeletionJob = null;
+let qualitySummary = null;   // filled by the golden-set run, shown on Overview
+
+function show(id, btn) {
+  document.querySelectorAll("section").forEach(s => s.classList.remove("active"));
+  document.querySelectorAll("nav button").forEach(b => b.classList.remove("active"));
+  document.getElementById(id).classList.add("active");
+  btn.classList.add("active");
+}
+const tile = (k,v,cls="") => `<div class="tile"><div class="k">${k}</div><div class="v ${cls}">${v}</div></div>`;
+const esc  = s => String(s).replace(/[<>&]/g, c => ({"<":"&lt;",">":"&gt;","&":"&amp;"}[c]));
+
+// ── health badge ─────────────────────────────────────────────────────
+async function checkHealth() {
+  let up = 0;
+  await Promise.all(SERVICES.map(async ([, url]) => {
+    try { if ((await fetch(url + "/health")).ok) up++; } catch (e) {}
+  }));
+  const b = document.getElementById("healthBadge");
+  b.textContent = `${up}/${SERVICES.length} services up`;
+  b.className = "pill " + (up === SERVICES.length ? "on" : "off");
+}
+
+// ── 1. OVERVIEW ──────────────────────────────────────────────────────
+async function runOverview() {
+  const tiles = document.getElementById("opTiles");
+  tiles.innerHTML = `<div class="tile"><div class="k">measuring…</div></div>`;
+
+  // service health, one row each
+  const rows = [];
+  let up = 0, queueOk = false, consumerOk = false;
+  for (const [name, url] of SERVICES) {
+    try {
+      const r = await fetch(url + "/health");
+      const j = await r.json();
+      if (r.ok) up++;
+      if (j.local_mode === false) queueOk = true;
+      if (j.queue_consumer === true) consumerOk = true;
+      rows.push(`<tr><td>${name}</td><td><span class="pill on">up</span></td>
+                 <td class="muted">${esc(JSON.stringify(j))}</td></tr>`);
+    } catch (e) {
+      rows.push(`<tr><td>${name}</td><td><span class="pill off">down</span></td><td class="muted">no response</td></tr>`);
+    }
+  }
+  document.getElementById("svcTable").innerHTML =
+    `<table><tr><th>Service</th><th>Status</th><th>Reported</th></tr>${rows.join("")}</table>`;
+
+  // retrieval latency + fallback rate over a small live sample
+  let lat = [], fallbacks = 0, n = 5;
+  for (let i = 0; i < n; i++) {
+    const t0 = performance.now();
+    try {
+      const r = await fetch(`${S.ret}/v1/memories/search`, {
+        method:"POST", headers:{"Content-Type":"application/json"},
+        body: JSON.stringify({ subject_id:"u_synth_001", surface:"music_chat", intent:"focus music" })
+      });
+      const j = await r.json();
+      lat.push(performance.now() - t0);
+      if (j.fallback_used) fallbacks++;
+    } catch (e) {}
+  }
+  lat.sort((a,b) => a-b);
+  const p95 = lat.length ? Math.round(lat[Math.min(lat.length-1, Math.floor(lat.length*0.95))]) : null;
+
+  tiles.innerHTML =
+    tile("Services up", `${up}/${SERVICES.length}`, up === SERVICES.length ? "good" : "bad") +
+    tile("Queue connected", queueOk ? "yes" : "no", queueOk ? "good" : "bad") +
+    tile("Queue consumer", consumerOk ? "running" : "stopped", consumerOk ? "good" : "bad") +
+    tile("Retrieval SLO (P95)", p95 === null ? "—" : `${p95} ms`, p95 !== null && p95 < 250 ? "good" : "bad") +
+    tile("Fallback rate", `${Math.round(fallbacks / n * 100)}%`, fallbacks === 0 ? "good" : "bad") +
+    tile("Quality metrics", qualitySummary || "run golden set", qualitySummary ? "good" : "na") +
+    tile("Ingestion lag", "not instrumented", "na") +
+    tile("Write failures", "not instrumented", "na") +
+    tile("Retries", "not instrumented", "na") +
+    tile("Experiment status", "not instrumented", "na");
+
+  if (lastDeletionJob) showDeletion(lastDeletionJob);
+}
+
+async function showDeletion(jobId) {
+  try {
+    const j = await (await fetch(`${S.del}/v1/deletions/${jobId}`)).json();
+    const rows = Object.entries(j.stores || {}).map(([k,v]) =>
+      `<tr><td>${k}</td><td><span class="pill ${v==="completed"?"on":"warn"}">${v}</span></td></tr>`).join("");
+    document.getElementById("delTable").innerHTML =
+      `<p class="muted">Job ${j.job_id} — overall: <strong>${j.status}</strong></p>
+       <table><tr><th>Store</th><th>Status</th></tr>${rows}</table>`;
+  } catch (e) {}
+}
+
+// ── 2. MEMORY EXPLORER ───────────────────────────────────────────────
+async function runExplorer() {
+  const subject_id = document.getElementById("expSubject").value;
+  const surface    = document.getElementById("expSurface").value;
+  const out = document.getElementById("expOut");
+  document.getElementById("provOut").innerHTML = "";
+  out.innerHTML = `<p class="muted">loading…</p>`;
+  try {
+    const [s, c] = await Promise.all([
+      fetch(`${S.ret}/v1/memories/search`, { method:"POST", headers:{"Content-Type":"application/json"},
+        body: JSON.stringify({ subject_id, surface, intent:"", max_results:20 }) }).then(r=>r.json()),
+      fetch(`${S.ctx}/v1/context/compose`, { method:"POST", headers:{"Content-Type":"application/json"},
+        body: JSON.stringify({ subject_id, surface, intent:"" }) }).then(r=>r.json())
+    ]);
+    if (!s.results || !s.results.length) {
+      out.innerHTML = `<div class="card">No memories for this subject on this surface.</div>`; return;
+    }
+    const meta = {}; (c.items||[]).forEach(i => meta[i.memory_id] = i);
+    // newest first = the timeline
+    const rows = s.results.map(r => {
+      const m = meta[r.memory_id] || {};
+      const when = m.recorded_at ? new Date(m.recorded_at) : null;
+      return { r, m, when };
+    }).sort((a,b) => (b.when?.getTime()||0) - (a.when?.getTime()||0))
+      .map(({r,m,when}) => `
+      <tr>
+        <td>${when ? when.toLocaleString() : "—"}</td>
+        <td>${esc(r.fact)}</td>
+        <td>${r.memory_type}</td>
+        <td>${m.source_class || "—"}</td>
+        <td>${r.confidence}</td>
+        <td><span class="pill on">active</span></td>
+        <td><button class="alt" style="margin:0" onclick="provenance('${r.memory_id}','${subject_id}')">Why?</button></td>
+      </tr>`).join("");
+    out.innerHTML = `<table>
+      <tr><th>Recorded</th><th>Fact</th><th>Type</th><th>Source</th><th>Conf.</th><th>Status</th><th>Provenance</th></tr>
+      ${rows}</table>
+      <p class="muted">Search returns only retrievable memories, so everything listed is active. Superseded and expired
+      history stays in the graph and is visible at <code>localhost:7474</code>.</p>`;
+  } catch (e) {
+    out.innerHTML = `<div class="card">Could not reach retrieval (8002) or composer (8003).</div>`;
+  }
+}
+
+// provenance for one memory, via the MCP explain tool
+async function provenance(memory_id, subject_id) {
+  const out = document.getElementById("provOut");
+  out.innerHTML = `<p class="muted">loading provenance…</p>`;
+  try {
+    const j = await (await fetch(`${S.mcp}/tools/explain_memory_use?subject_id=${encodeURIComponent(subject_id)}`, {
+      method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({ memory_id })
+    })).json();
+    out.innerHTML = `<div class="card"><h3 style="margin-top:0">Why this memory exists</h3>
+      <table>
+        <tr><th>Fact</th><td>${esc(j.fact || "—")}</td></tr>
+        <tr><th>Created by event</th><td>${esc(j.source_event_id || "—")}</td></tr>
+        <tr><th>Confidence</th><td>${j.confidence}</td></tr>
+        <tr><th>Policy class</th><td>${esc(j.policy_class || "—")}</td></tr>
+        <tr><th>Recorded at</th><td>${esc(j.recorded_at || "—")}</td></tr>
+        <tr><th>Memory ID</th><td>${esc(j.memory_id)}</td></tr>
+      </table></div>`;
+  } catch (e) {
+    out.innerHTML = `<div class="card">Could not reach the MCP server (8005).</div>`;
+  }
+}
+
+// ── 3. CONTEXT PREVIEW ───────────────────────────────────────────────
+async function runContext() {
+  const subject_id = document.getElementById("ctxSubject").value;
+  const surface    = document.getElementById("ctxSurface").value;
+  const intent     = document.getElementById("ctxIntent").value;
+  const out = document.getElementById("ctxOut");
+  out.innerHTML = `<p class="muted">composing…</p>`;
+  try {
+    // candidates + ranking
+    const s = await (await fetch(`${S.ret}/v1/memories/search`, {
+      method:"POST", headers:{"Content-Type":"application/json"},
+      body: JSON.stringify({ subject_id, surface, intent, max_results:20 }) })).json();
+    // final pack
+    const c = await (await fetch(`${S.ctx}/v1/context/compose`, {
+      method:"POST", headers:{"Content-Type":"application/json"},
+      body: JSON.stringify({ subject_id, surface, intent }) })).json();
+
+    if (c.trace_id) document.getElementById("traceId").value = c.trace_id;
+
+    const kept = new Set((c.items||[]).map(i => i.memory_id));
+    const cand = (s.results||[]).map(r => `
+      <tr><td>${esc(r.fact)}</td><td>${r.memory_type}</td><td>${r.confidence}</td>
+          <td>${esc(r.relevance_reason)}</td>
+          <td>${kept.has(r.memory_id) ? '<span class="pill on">kept</span>'
+                                      : '<span class="pill warn">removed</span>'}</td></tr>`).join("");
+    const removed = (s.results||[]).filter(r => !kept.has(r.memory_id)).length;
+
+    out.innerHTML =
+      `<div class="tiles">
+        ${tile("Candidates retrieved", (s.results||[]).length)}
+        ${tile("Kept after policy", (c.items||[]).length, "good")}
+        ${tile("Removed by policy / budget", removed, removed ? "bad" : "good")}
+        ${tile("Tokens used", `${c.token_count} / ${c.token_budget}`)}
+        ${tile("Fallback", c.fallback_used ? "yes" : "no", c.fallback_used ? "bad" : "good")}
+      </div>
+      <h3>Candidate retrieval and ranking</h3>
+      ${cand ? `<table><tr><th>Fact</th><th>Type</th><th>Conf.</th><th>Ranking score</th><th>Outcome</th></tr>${cand}</table>`
+             : `<p class="muted">No candidates retrieved.</p>`}
+      <h3>Final context package sent to the model</h3>
+      <pre>${esc(JSON.stringify(c, null, 2))}</pre>
+      <p class="muted">Trace ID copied to the Policy &amp; Audit tab.</p>`;
+  } catch (e) {
+    out.innerHTML = `<div class="card">Could not reach retrieval (8002) or composer (8003).</div>`;
+  }
+}
+
+// ── 4. GRAPH & SCHEMA ────────────────────────────────────────────────
+function renderSchema() {
+  document.getElementById("ontologyOut").innerHTML =
+    `<table><tr><th>Node</th><th>Fields</th><th>Meaning</th></tr>
+      ${ONTOLOGY.map(([n,f,m]) => `<tr><td><strong>${n}</strong></td><td class="muted">${f}</td><td>${m}</td></tr>`).join("")}
+     </table>
+     <h3>Relationship rules</h3>
+     <table><tr><th>Relationship</th><th>Meaning</th></tr>
+      ${RELATIONSHIPS.map(([r,m]) => `<tr><td><code>${esc(r)}</code></td><td>${m}</td></tr>`).join("")}
+     </table>`;
+
+  document.getElementById("registryOut").innerHTML =
+    `<table><tr><th>Memory type</th><th>Sensitivity</th><th>Allowed purposes</th><th>Retention</th><th>Needs confirmation</th></tr>
+      ${REGISTRY.map(([t,s,p,d,c]) => `<tr><td><strong>${t}</strong></td><td>${s}</td><td>${p}</td>
+        <td>${d} days</td><td>${c}</td></tr>`).join("")}
+     </table>
+     <p class="muted">Read-only view. The taxonomy is deliberately narrow for the pilot and is not widened without evaluation evidence.</p>`;
+
+  loadVersions();
+
+  document.getElementById("migrationOut").innerHTML =
+    `<table><tr><th>Migration</th><th>Target</th><th>State</th></tr>
+      ${MIGRATIONS.map(([f,t,s]) => `<tr><td><code>${f}</code></td><td>${t}</td><td>${s}</td></tr>`).join("")}
+     </table>`;
+}
+
+// version of each service contract, read from its OpenAPI document
+async function loadVersions() {
+  const out = document.getElementById("versionOut");
+  const rows = await Promise.all(SERVICES.map(async ([name, url]) => {
+    try {
+      const j = await (await fetch(url + "/openapi.json")).json();
+      return `<tr><td>${name}</td><td>${esc(j.info.version)}</td>
+              <td><span class="pill on">live</span></td></tr>`;
+    } catch (e) {
+      return `<tr><td>${name}</td><td>—</td><td><span class="pill off">not reachable</span></td></tr>`;
+    }
+  }));
+  out.innerHTML =
+    `<table><tr><th>Contract</th><th>Version</th><th>Rollout state</th></tr>
+      <tr><td>Interaction event schema</td><td>1.0.0</td><td><span class="pill on">live</span></td></tr>
+      ${rows.join("")}
+     </table>
+     <p class="muted">All contracts are at their first version, so there is no earlier version to
+     compare against yet. Backward compatibility is enforced by
+     <code>tests/contract/test_schema_backward_compatibility.py</code>.</p>`;
+}
+
+// ── 5. QUALITY ───────────────────────────────────────────────────────
+async function runQuality() {
+  const out = document.getElementById("qOut");
+  const tiles = document.getElementById("qTiles");
+  out.innerHTML = `<p class="muted">running ${GOLDEN.length} cases…</p>`;
+  tiles.innerHTML = "";
+  const confs = [], ages = [];
+  let retrieved = 0, fell = 0, contraCases = 0, correctionsSeen = 0;
+  const clusters = { "Fell back to no memory":[], "Retrieved nothing":[], "Service unreachable":[] };
+
+  const rows = [];
+  for (const g of GOLDEN) {
+    try {
+      const s = await (await fetch(`${S.ret}/v1/memories/search`, {
+        method:"POST", headers:{"Content-Type":"application/json"},
+        body: JSON.stringify({ subject_id:g.subject, surface:g.surface, intent:g.intent }) })).json();
+      const c = await (await fetch(`${S.ctx}/v1/context/compose`, {
+        method:"POST", headers:{"Content-Type":"application/json"},
+        body: JSON.stringify({ subject_id:g.subject, surface:g.surface, intent:g.intent }) })).json();
+
+      const n = (s.results||[]).length;
+      if (n) retrieved++; else clusters["Retrieved nothing"].push(g.id);
+      if (c.fallback_used) { fell++; clusters["Fell back to no memory"].push(g.id); }
+      (s.results||[]).forEach(r => confs.push(r.confidence));
+
+      // freshness: how old is the material the model is being given
+      (c.items||[]).forEach(i => {
+        if (i.recorded_at) {
+          const days = (Date.now() - new Date(i.recorded_at).getTime()) / 86400000;
+          if (isFinite(days)) ages.push(days);
+        }
+      });
+
+      // Corrections actually retrieved. This is NOT a contradiction rate: proving
+      // a superseded fact was suppressed needs to see superseded memories, and no
+      // §7.3 endpoint returns them (search only ever returns active ones).
+      const corrections = (s.results||[]).filter(r => r.memory_type === "correction").length;
+      correctionsSeen += corrections;
+      if (g.kind === "contradiction") contraCases++;
+      const contra = g.kind === "contradiction"
+        ? (corrections ? '<span class="pill on">correction retrieved</span>'
+                       : '<span class="pill warn">no correction in top results</span>')
+        : "—";
+
+      rows.push(`<tr>
+        <td><code>${g.id}</code></td><td>${g.kind}</td><td>${g.subject}</td>
+        <td>${n}</td>
+        <td>${c.fallback_used ? '<span class="pill warn">fallback</span>' : '<span class="pill on">memory used</span>'}</td>
+        <td>${c.token_count}</td><td>${contra}</td></tr>`);
+    } catch (e) {
+      clusters["Service unreachable"].push(g.id);
+      rows.push(`<tr><td><code>${g.id}</code></td><td>${g.kind}</td><td>${g.subject}</td>
+                 <td colspan="4"><span class="pill off">service unreachable</span></td></tr>`);
+    }
+  }
+
+  const freshness = ages.length ? (ages.reduce((a,b)=>a+b,0)/ages.length) : null;
+  qualitySummary = `${retrieved}/${GOLDEN.length} retrieved`;
+
+  tiles.innerHTML =
+    tile("Cases run", GOLDEN.length) +
+    tile("Retrieved something", `${retrieved}/${GOLDEN.length}`) +
+    tile("Fell back to no memory", `${fell}/${GOLDEN.length}`) +
+    tile("Corrections retrieved", correctionsSeen) +
+    tile("Contradiction rate", "not instrumented", "na") +
+    tile("Freshness (avg age)", freshness === null ? "—" : `${freshness.toFixed(1)} days`) +
+    tile("Multilingual cases", GOLDEN.filter(g=>g.kind==="multilingual").length) +
+    tile("Precision / recall", "not instrumented", "na");
+
+  out.innerHTML = `<table>
+    <tr><th>Case</th><th>Kind</th><th>Subject</th><th>Retrieved</th><th>Outcome</th><th>Tokens</th><th>Contradiction</th></tr>
+    ${rows.join("")}</table>
+    <p class="muted">Sparse-history and adversarial cases are expected to fall back — that is the correct, safe result.</p>`;
+
+  // failure clusters: group the cases that did not use memory, by reason
+  const cl = Object.entries(clusters).filter(([,v]) => v.length);
+  document.getElementById("clusterOut").innerHTML = cl.length
+    ? `<table><tr><th>Cluster</th><th>Cases</th><th>Count</th></tr>
+        ${cl.map(([k,v]) => `<tr><td>${k}</td><td class="muted">${v.join(", ")}</td><td>${v.length}</td></tr>`).join("")}
+       </table>`
+    : `<p class="muted">No failures — every case used memory.</p>`;
+
+  runSideBySide();
+
+  // confidence distribution, in plain buckets
+  const buckets = { "0.0–0.5":0, "0.5–0.8":0, "0.8–0.95":0, "0.95–1.0":0 };
+  confs.forEach(v => { if (v < .5) buckets["0.0–0.5"]++; else if (v < .8) buckets["0.5–0.8"]++;
+                       else if (v < .95) buckets["0.8–0.95"]++; else buckets["0.95–1.0"]++; });
+  const max = Math.max(1, ...Object.values(buckets));
+  document.getElementById("confOut").innerHTML = confs.length
+    ? `<table>${Object.entries(buckets).map(([b,n]) => `<tr>
+         <td style="width:90px">${b}</td>
+         <td><div style="background:#1db954;height:11px;border-radius:5px;width:${n/max*100}%;min-width:${n?"8px":"0"}"></div></td>
+         <td style="width:40px">${n}</td></tr>`).join("")}</table>
+       <p class="muted">${confs.length} retrieved memories measured.</p>`
+    : `<p class="muted">Nothing retrieved, so there is no distribution to show.</p>`;
+}
+
+// Side by side: what the model receives with memory, against the deterministic
+// no-memory baseline the system falls back to (§5.4 "deterministic no-memory
+// fallback", §7.7 "side-by-side memory-enabled comparisons").
+async function runSideBySide() {
+  const g = GOLDEN[0];
+  const out = document.getElementById("sideOut");
+  try {
+    const c = await (await fetch(`${S.ctx}/v1/context/compose`, {
+      method:"POST", headers:{"Content-Type":"application/json"},
+      body: JSON.stringify({ subject_id:g.subject, surface:g.surface, intent:g.intent }) })).json();
+
+    const enabledItems = (c.items||[]).map(i => `<li>${esc(i.fact)}</li>`).join("") || "<li>none</li>";
+    out.innerHTML = `
+      <p class="muted">Intent: "${esc(g.intent)}" &nbsp;·&nbsp; Subject: ${g.subject}</p>
+      <table>
+        <tr><th></th><th>Memory enabled</th><th>Memory disabled (baseline)</th></tr>
+        <tr><td>Memories injected</td><td>${(c.items||[]).length}</td><td>0</td></tr>
+        <tr><td>Tokens used</td><td>${c.token_count} / ${c.token_budget}</td><td>0 / ${c.token_budget}</td></tr>
+        <tr><td>Fallback</td>
+            <td>${c.fallback_used ? '<span class="pill warn">yes</span>' : '<span class="pill on">no</span>'}</td>
+            <td><span class="pill warn">yes, by definition</span></td></tr>
+        <tr><td>What the model sees</td>
+            <td><ul style="margin:0;padding-left:16px">${enabledItems}</ul></td>
+            <td class="muted">no memories injected — the answer is generated from the current request alone</td></tr>
+      </table>`;
+  } catch (e) {
+    out.innerHTML = `<p class="muted">Could not reach the composer (8003).</p>`;
+  }
+}
+
+// ── 6. POLICY & AUDIT ────────────────────────────────────────────────
+function renderPolicy() {
+  document.getElementById("blockedOut").innerHTML =
+    `<table><tr><th>Category</th><th>Rule</th></tr>
+      ${BLOCKED.map(b => `<tr><td><code>${b}</code></td><td><span class="pill off">blocked</span> never stored as durable memory</td></tr>`).join("")}
+     </table>`;
+}
+
+function renderConsent() {
+  document.getElementById("consentOut").innerHTML =
+    `<table><tr><th>State</th><th>What the system does</th></tr>
+      <tr><td><span class="pill on">granted</span></td><td>Event is accepted and may become memory</td></tr>
+      <tr><td><span class="pill warn">partial</span></td><td>Accepted; eligibility still decided per memory type</td></tr>
+      <tr><td><span class="pill off">denied</span></td><td>Refused at the door with <code>consent_denied</code>, before the queue or the graph</td></tr>
+     </table>
+     <p class="muted">Consent travels on every event (§5.4). The per-subject current state is
+     <strong>not readable</strong> here — no endpoint in §7.3 exposes it.</p>`;
+}
+
+async function loadTrace() {
+  const id = document.getElementById("traceId").value.trim();
+  const out = document.getElementById("traceOut");
+  if (!id) { out.innerHTML = `<p class="muted">Compose a context first to get a trace ID.</p>`; return; }
+  out.innerHTML = `<p class="muted">loading…</p>`;
+  try {
+    const r = await fetch(`${S.ret}/v1/traces/${encodeURIComponent(id)}`);
+    if (!r.ok) {
+      out.innerHTML = `<div class="card">No trace with that ID. Composer and retrieval issue separate trace IDs —
+        use one shown by the retrieval step.</div>`; return;
+    }
+    const j = await r.json();
+    const stages = (j.stages||[]).map(s => `<tr><td>${s.stage}</td><td>${s.duration_ms} ms</td>
+      <td>${s.outcome}</td><td class="muted">${esc(JSON.stringify(s.detail||{}))}</td></tr>`).join("");
+    out.innerHTML = `<div class="card">
+      <table><tr><th>Subject</th><td>${esc(j.subject_id)}</td></tr>
+             <tr><th>Surface</th><td>${esc(j.surface)}</td></tr>
+             <tr><th>Total latency</th><td>${j.total_latency_ms} ms</td></tr>
+             <tr><th>Fallback used</th><td>${j.fallback_used ? "yes" : "no"}</td></tr>
+             <tr><th>Memories used</th><td>${(j.memory_ids_used||[]).join(", ") || "none"}</td></tr></table>
+      <h3>Decisions, stage by stage</h3>
+      <table><tr><th>Stage</th><th>Took</th><th>Outcome</th><th>Detail</th></tr>${stages}</table>
+    </div>`;
+  } catch (e) {
+    out.innerHTML = `<div class="card">Could not reach the retrieval service (8002).</div>`;
+  }
+}
+
+checkHealth();
+renderSchema();
+renderPolicy();
+renderConsent();
+</script>
+</body>
+</html>

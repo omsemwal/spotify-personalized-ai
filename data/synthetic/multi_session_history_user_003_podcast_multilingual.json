@@ -1,0 +1,12 @@
+{
+  "subject_id": "u_synth_003",
+  "description": "Podcast continuation with multilingual statement (spec: 'multilingual phrasing' golden case coverage).",
+  "events": [
+    {"event_id":"e201","subject_id":"u_synth_003","surface":"podcast_chat","event_type":"statement",
+     "payload":{"text":"Me encanta el true crime, sigue recomendándome más","entities":["true crime"],"explicit":true},
+     "locale":"es-ES","timestamp":"2026-06-04T20:00:00Z","consent_state":"granted","idempotency_key":"idem_e201"},
+    {"event_id":"e202","subject_id":"u_synth_003","surface":"podcast_chat","event_type":"statement",
+     "payload":{"text":"I don't want true crime episodes about missing children specifically","entities":["true crime"],"explicit":true,"is_exclusion":true},
+     "locale":"en-US","timestamp":"2026-06-05T20:00:00Z","consent_state":"granted","idempotency_key":"idem_e202"}
+  ]
+}

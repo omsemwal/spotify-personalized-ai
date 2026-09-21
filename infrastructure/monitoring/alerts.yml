@@ -1,0 +1,40 @@
+# Alert thresholds tied directly to §5.5 Non-Functional Expectations and the
+# leadership meeting's operational requirements (§4 Site Reliability Lead,
+# Operations Lead).
+groups:
+  - name: memory-system-slos
+    rules:
+      - alert: RetrievalLatencyP95Breach
+        expr: histogram_quantile(0.95, retrieval_latency_seconds_bucket) > 0.25
+        for: 5m
+        labels: { severity: page }
+        annotations:
+          summary: "Retrieval P95 latency exceeds the 250ms pilot budget (§5.5)"
+
+      - alert: HighFallbackRate
+        expr: rate(context_compose_fallback_total[10m]) / rate(context_compose_total[10m]) > 0.3
+        for: 10m
+        labels: { severity: warn }
+        annotations:
+          summary: "More than 30% of context-compose calls are falling back to no-memory"
+
+      - alert: DeletionBacklogGrowing
+        expr: deletion_jobs_in_progress > 100
+        for: 15m
+        labels: { severity: warn }
+        annotations:
+          summary: "Deletion job backlog is growing — check deletion-orchestrator"
+
+      - alert: GraphWriteFailureSpike
+        expr: rate(graph_write_failures_total[5m]) > 0.05
+        for: 5m
+        labels: { severity: page }
+        annotations:
+          summary: "Graph write failure rate elevated — possible Neo4j issue"
+
+      - alert: PolicyRejectionSpike
+        expr: rate(policy_rejections_total[10m]) > rate(policy_evaluations_total[10m]) * 0.5
+        for: 10m
+        labels: { severity: warn }
+        annotations:
+          summary: "Over half of policy evaluations are being rejected — check for a misconfigured surface policy or registry change"

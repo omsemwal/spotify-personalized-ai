@@ -1,0 +1,169 @@
+version: '3.8'
+
+services:
+  # Operational Database
+  postgres:
+    image: postgres:15-alpine
+    container_name: memory_system_postgres
+    restart: always
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-memory_system}
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres_password_secure}
+    ports:
+      # Host port 5433 on purpose: a natively installed PostgreSQL commonly owns
+      # 5432 and would shadow this container. Inside the compose network the
+      # port is still 5432 (services use POSTGRES_HOST=postgres).
+      - "5433:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # Temporal Graph Database
+  neo4j:
+    image: neo4j:5-community
+    container_name: memory_system_neo4j
+    restart: always
+    environment:
+      NEO4J_AUTH: ${NEO4J_USER:-neo4j}/${NEO4J_PASSWORD:-neo4j_password_secure}
+      NEO4J_PLUGINS: '["apoc"]'
+    ports:
+      - "7474:7474" # HTTP Browser UI
+      - "7687:7687" # Bolt Protocol
+    volumes:
+      - neo4j_data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:7474 || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Redis Cache & Idempotency Key Storage
+  redis:
+    image: redis:7-alpine
+    container_name: memory_system_redis
+    restart: always
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  # Kafka-compatible Redpanda Event Streaming Broker
+  redpanda:
+    image: docker.redpanda.com/redpandadata/redpanda:v23.2.1
+    container_name: memory_system_redpanda
+    restart: always
+    command:
+      - redpanda start
+      - --kafka-addr internal://0.0.0.0:9092,external://0.0.0.0:19092
+      - --advertise-kafka-addr internal://redpanda:9092,external://localhost:19092
+      - --pandaproxy-addr 0.0.0.0:8082
+      - --advertise-pandaproxy-addr localhost:8082
+      - --schema-registry-addr 0.0.0.0:8081
+      - --mode dev-container
+      - --smp 1
+      - --default-log-level=info
+    ports:
+      - "19092:19092"
+      - "9092:9092"
+      - "8081:8081"
+      - "8082:8082"
+    volumes:
+      - redpanda_data:/var/lib/redpanda/data
+
+  # Vector Database for Semantic Memory Retrieval
+  qdrant:
+    image: qdrant/qdrant:v1.7.4
+    container_name: memory_system_qdrant
+    restart: always
+    ports:
+      - "6333:6333"
+      - "6334:6334"
+    volumes:
+      - qdrant_data:/qdrant/storage
+
+  # API gateway — single entry point for all 10 APIs and 5 MCP tools (§6.4
+  # step 3, §7.3 request flow, §7.8 step 38). The services stay separate
+  # processes behind it.
+  api-gateway:
+    image: nginx:1.27-alpine
+    container_name: memory_system_gateway
+    restart: always
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./infrastructure/containers/gateway.conf:/etc/nginx/conf.d/default.conf:ro
+    extra_hosts:
+      # lets the gateway reach services running directly on the host machine
+      - "host.docker.internal:host-gateway"
+
+  # --- Application services (§7.3 APIs + §5.4 MCP tools) ---
+
+  ingestion-api:
+    build: { context: ., dockerfile: services/ingestion-api/Dockerfile }
+    container_name: memory_system_ingestion_api
+    restart: always
+    env_file: .env
+    environment: { LOCAL_MODE: "false", KAFKA_BOOTSTRAP_SERVERS: "redpanda:9092" }
+    ports: ["8001:8001"]
+    depends_on: [redis, redpanda]
+
+  memory-processor:
+    build: { context: ., dockerfile: services/memory-processor/Dockerfile }
+    container_name: memory_system_memory_processor
+    restart: always
+    env_file: .env
+    environment: { LOCAL_MODE: "false", KAFKA_BOOTSTRAP_SERVERS: "redpanda:9092" }
+    ports: ["8006:8006"]
+    depends_on: [neo4j, redpanda]
+
+  retrieval-api:
+    build: { context: ., dockerfile: services/retrieval-api/Dockerfile }
+    container_name: memory_system_retrieval_api
+    restart: always
+    env_file: .env
+    environment: { LOCAL_MODE: "false" }
+    ports: ["8002:8002"]
+    depends_on: [neo4j, qdrant]
+
+  context-composer:
+    build: { context: ., dockerfile: services/context-composer/Dockerfile }
+    container_name: memory_system_context_composer
+    restart: always
+    env_file: .env
+    environment: { LOCAL_MODE: "false", POSTGRES_HOST: "postgres", POSTGRES_PORT: "5432" }
+    ports: ["8003:8003"]
+    depends_on: [retrieval-api, postgres]
+
+  deletion-orchestrator:
+    build: { context: ., dockerfile: services/deletion-orchestrator/Dockerfile }
+    container_name: memory_system_deletion_orchestrator
+    restart: always
+    env_file: .env
+    environment: { LOCAL_MODE: "false", POSTGRES_HOST: "postgres", POSTGRES_PORT: "5432" }
+    ports: ["8004:8004"]
+    depends_on: [neo4j, postgres]
+
+  memory-mcp-server:
+    build: { context: ., dockerfile: services/memory-mcp-server/Dockerfile }
+    container_name: memory_system_mcp_server
+    restart: always
+    env_file: .env
+    ports: ["8005:8005"]
+    depends_on: [retrieval-api, memory-processor, deletion-orchestrator]
+
+volumes:
+  postgres_data:
+  neo4j_data:
+  redis_data:
+  redpanda_data:
+  qdrant_data:

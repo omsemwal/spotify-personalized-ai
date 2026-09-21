@@ -1,0 +1,12 @@
+{
+  "subject_id": "u_synth_004",
+  "description": "Sparse history (single event) then an opt-out — must yield graceful no-memory fallback.",
+  "events": [
+    {"event_id":"e301","subject_id":"u_synth_004","surface":"music_chat","event_type":"play",
+     "payload":{"entities":["workout"]},
+     "locale":"en-US","timestamp":"2026-06-06T07:00:00Z","consent_state":"granted","idempotency_key":"idem_e301"},
+    {"event_id":"e302","subject_id":"u_synth_004","surface":"music_chat","event_type":"opt_out",
+     "payload":{},
+     "locale":"en-US","timestamp":"2026-06-06T07:10:00Z","consent_state":"denied","idempotency_key":"idem_e302"}
+  ]
+}

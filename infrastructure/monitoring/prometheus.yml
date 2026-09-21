@@ -1,0 +1,19 @@
+# Scrape config for all 6 services (§6.2 OpenTelemetry/Prometheus/Grafana,
+# §5.4 "Monitor ingestion lag, write failures, retrieval latency, cache
+# effectiveness, fallback rate, deletion backlog, and policy rejection rate.")
+global:
+  scrape_interval: 15s
+
+scrape_configs:
+  - job_name: ingestion-api
+    static_configs: [{ targets: ["ingestion-api:8001"] }]
+  - job_name: memory-processor
+    static_configs: [{ targets: ["memory-processor:8006"] }]
+  - job_name: retrieval-api
+    static_configs: [{ targets: ["retrieval-api:8002"] }]
+  - job_name: context-composer
+    static_configs: [{ targets: ["context-composer:8003"] }]
+  - job_name: memory-mcp-server
+    static_configs: [{ targets: ["memory-mcp-server:8005"] }]
+  - job_name: deletion-orchestrator
+    static_configs: [{ targets: ["deletion-orchestrator:8004"] }]

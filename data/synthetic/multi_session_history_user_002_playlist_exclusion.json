@@ -1,0 +1,12 @@
+{
+  "subject_id": "u_synth_002",
+  "description": "Durable playlist exclusion preference (spec journey: 'Preserve playlist preferences').",
+  "events": [
+    {"event_id":"e101","subject_id":"u_synth_002","surface":"playlist_ui","event_type":"statement",
+     "payload":{"text":"Never include explicit lyrics in playlists you make for me","entities":["explicit_lyrics"],"explicit":true,"is_exclusion":true},
+     "locale":"en-US","timestamp":"2026-06-02T14:00:00Z","consent_state":"granted","idempotency_key":"idem_e101"},
+    {"event_id":"e102","subject_id":"u_synth_002","surface":"playlist_ui","event_type":"skip",
+     "payload":{"entities":["explicit_lyrics"]},
+     "locale":"en-US","timestamp":"2026-06-03T10:00:00Z","consent_state":"granted","idempotency_key":"idem_e102"}
+  ]
+}

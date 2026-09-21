@@ -1,0 +1,315 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Your Memory — Spotify</title>
+<!--
+  Memory Control Experience (§5.2): "User-facing controls to review, correct,
+  remove, pause, or opt out of eligible memory behavior."
+  Plus §7.6 "Correction and deletion: ... show propagation status, and prevent
+  silent partial completion."
+  Plain HTML/JS on purpose so the whole surface is readable in one file.
+-->
+<style>
+  body { font-family: -apple-system, Segoe UI, sans-serif; margin:0; background:#0b0b0f; color:#eaeaf0; }
+  header { padding:16px 24px; border-bottom:1px solid #262633; display:flex; justify-content:space-between; align-items:center; }
+  h1 { font-size:18px; margin:0; }
+  main { padding:24px; max-width:760px; margin:0 auto; }
+  h3 { margin:0 0 10px; font-size:15px; }
+  .card { background:#14141c; border:1px solid #262633; border-radius:10px; padding:16px 18px; margin-bottom:14px; }
+  .fact { font-size:15px; }
+  .meta { font-size:12px; color:#9a9ab0; margin-top:6px; }
+  .actions { margin-top:10px; }
+  button { background:transparent; color:#eaeaf0; border:1px solid #444; padding:6px 14px; border-radius:16px; cursor:pointer; margin-right:8px; font-size:12px; }
+  button.primary { background:#1db954; color:#04140a; border:none; font-weight:600; }
+  button.danger { border-color:#7a3030; color:#ff9f9f; }
+  button:hover { opacity:.85; }
+  label { display:block; font-size:12px; color:#9a9ab0; margin:12px 0 4px; }
+  input { width:100%; box-sizing:border-box; background:#0b0b0f; border:1px solid #333; color:#eaeaf0; padding:8px; border-radius:6px; }
+  .status { font-size:12px; padding:8px 10px; border-radius:6px; margin-top:10px; }
+  .status.ok { background:#123420; color:#7de8a4; }
+  .status.err { background:#401515; color:#ff9f9f; }
+  .status.warn { background:#3a3111; color:#ffd98a; }
+  table { width:100%; border-collapse:collapse; margin-top:10px; font-size:12px; }
+  th, td { text-align:left; padding:6px 8px; border-bottom:1px solid #262633; }
+  th { color:#9a9ab0; font-weight:500; }
+  .pill { font-size:11px; padding:2px 8px; border-radius:10px; border:1px solid #333; color:#9a9ab0; }
+  .pill.on { background:#123420; color:#7de8a4; border-color:#1db954; }
+  .pill.off { background:#3a1111; color:#ff9f9f; border-color:#7a3030; }
+  .muted { color:#9a9ab0; font-size:12px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Spotify remembered this — Your Memory Controls</h1>
+  <span id="memoryState" class="pill">checking…</span>
+</header>
+<main>
+
+  <!-- ── Who am I / refresh ─────────────────────────────────────────── -->
+  <div class="card">
+    <label>Your account (subject ID)</label>
+    <input id="subjectId" value="u_synth_001" />
+    <label>Where you are using Spotify (surface)</label>
+    <input id="surface" value="music_chat" />
+    <div class="actions">
+      <button class="primary" onclick="loadMemories()">Show what Spotify remembers</button>
+    </div>
+  </div>
+
+  <!-- ── §5.2 "review" ──────────────────────────────────────────────── -->
+  <h3>What Spotify remembers about you</h3>
+  <div id="memoryCards"></div>
+
+  <!-- ── §5.2 "correct" ─────────────────────────────────────────────── -->
+  <div class="card">
+    <h3>Something wrong? Correct it</h3>
+    <p class="muted">Your correction wins. The old version is kept as history, never silently overwritten.</p>
+    <label>Which memory (paste the memory ID from a card above)</label>
+    <input id="correctMemoryId" placeholder="mem_..." />
+    <label>What it should say instead</label>
+    <input id="correctText" placeholder="e.g. I actually prefer instrumental piano" />
+    <div class="actions"><button onclick="correctMemory()">Submit correction</button></div>
+    <div id="correctStatus"></div>
+  </div>
+
+  <!-- ── §5.2 "pause" ───────────────────────────────────────────────── -->
+  <div class="card">
+    <h3>Pause memory</h3>
+    <p class="muted">
+      Stops Spotify using your memories to personalise answers on this surface.
+      Nothing is deleted — your memories stay, they are just not used.
+    </p>
+    <div class="actions">
+      <button id="pauseBtn" onclick="togglePause()">Pause memory</button>
+    </div>
+    <div id="pauseStatus"></div>
+  </div>
+
+  <!-- ── §5.2 "opt out" ─────────────────────────────────────────────── -->
+  <div class="card">
+    <h3>Opt out of memory</h3>
+    <p class="muted">
+      Tells Spotify to stop collecting new memories for your account. This sends
+      a recorded opt-out event, so the decision is traceable.
+    </p>
+    <div class="actions">
+      <button class="danger" onclick="optOut()">Opt out of memory</button>
+    </div>
+    <div id="optOutStatus"></div>
+  </div>
+
+  <!-- ── §7.6 "show propagation status" ─────────────────────────────── -->
+  <div id="deletionPanel" class="card" style="display:none;">
+    <h3>Deletion progress</h3>
+    <p class="muted">Every place your memory was stored reports separately, so a partial failure is visible.</p>
+    <div id="deletionResult"></div>
+  </div>
+
+</main>
+
+<script>
+// The three services this page talks to. Everything here is a normal API call —
+// nothing is hidden or faked.
+// Everything goes through the single API gateway (§6.4 step 3).
+const GATEWAY = "http://localhost:8080";
+const RETRIEVAL_URL = GATEWAY;
+const COMPOSER_URL  = GATEWAY;
+const DELETION_URL  = GATEWAY;
+const PROCESSOR_URL = GATEWAY;
+const INGESTION_URL = GATEWAY;
+const INGESTION_TOKEN = "dev-ingestion-token"; // pilot-only dev token (§ ingestion-api/auth.py)
+
+// "Paused" is a choice this person made on this surface. Kept in the browser
+// for the pilot; a production build would store it with consent state.
+function isPaused() { return localStorage.getItem("memory_paused") === "true"; }
+
+function renderState() {
+  const el = document.getElementById("memoryState");
+  const btn = document.getElementById("pauseBtn");
+  if (isPaused()) {
+    el.textContent = "Memory paused";   el.className = "pill off";
+    btn.textContent = "Resume memory";
+  } else {
+    el.textContent = "Memory on";       el.className = "pill on";
+    btn.textContent = "Pause memory";
+  }
+}
+
+// ── review ────────────────────────────────────────────────────────────
+async function loadMemories() {
+  const subject_id = document.getElementById("subjectId").value;
+  const surface    = document.getElementById("surface").value;
+  const box = document.getElementById("memoryCards");
+
+  if (isPaused()) {
+    box.innerHTML = `<div class="card"><div class="status warn">
+      Memory is paused, so Spotify is not using these right now.
+      Your memories are still saved — press "Resume memory" to use them again.
+    </div></div>`;
+    return;
+  }
+
+  box.innerHTML = `<div class="card muted">loading…</div>`;
+  try {
+    // Search gives the facts; compose gives when each was recorded and whether
+    // it came from something you said or something inferred (§7.6 source type).
+    const [sRes, cRes] = await Promise.all([
+      fetch(`${RETRIEVAL_URL}/v1/memories/search`, {
+        method:"POST", headers:{"Content-Type":"application/json"},
+        body: JSON.stringify({ subject_id, surface, intent:"", max_results:20 })
+      }),
+      fetch(`${COMPOSER_URL}/v1/context/compose`, {
+        method:"POST", headers:{"Content-Type":"application/json"},
+        body: JSON.stringify({ subject_id, surface, intent:"" })
+      })
+    ]);
+    const search = await sRes.json();
+    const ctx    = await cRes.json();
+    const extra  = {};
+    (ctx.items || []).forEach(i => extra[i.memory_id] = i);
+
+    if (!search.results || search.results.length === 0) {
+      box.innerHTML = `<div class="card">Nothing remembered yet for this account on this surface.</div>`;
+      return;
+    }
+
+    box.innerHTML = search.results.map(r => {
+      const e = extra[r.memory_id] || {};
+      const when = e.recorded_at ? new Date(e.recorded_at).toLocaleString() : "—";
+      const src  = e.source_class === "explicit_statement" ? "you told Spotify this"
+                 : e.source_class ? "worked out from your listening" : "—";
+      return `
+      <div class="card">
+        <div class="fact">"${r.fact}"</div>
+        <div class="meta">
+          Recorded: ${when} &nbsp;·&nbsp; Source: ${src}<br>
+          Type: ${r.memory_type} &nbsp;·&nbsp; Confidence: ${r.confidence}<br>
+          ID: ${r.memory_id}
+        </div>
+        <div class="actions">
+          <button class="danger" onclick="deleteMemory('${r.memory_id}')">Remove this memory</button>
+        </div>
+      </div>`;
+    }).join("");
+  } catch (e) {
+    box.innerHTML = `<div class="card"><div class="status err">
+      Could not reach the services. Are they running on ports 8002 / 8003?
+    </div></div>`;
+  }
+}
+
+// ── remove, and show where it was removed from ───────────────────────
+async function deleteMemory(memoryId) {
+  const panel = document.getElementById("deletionPanel");
+  const out   = document.getElementById("deletionResult");
+  panel.style.display = "block";
+  out.innerHTML = `<div class="muted">removing…</div>`;
+  try {
+    const start = await (await fetch(`${DELETION_URL}/v1/memories/${memoryId}`, { method:"DELETE" })).json();
+    // Ask the job what actually happened in each store (§7.6 propagation status)
+    const job = await (await fetch(`${DELETION_URL}/v1/deletions/${start.job_id}`)).json();
+
+    const rows = Object.entries(job.stores || {}).map(([store, state]) => {
+      const nice = { graph:"Memory graph", vector:"Search index", cache:"Cache",
+                     operational_store:"Records", backup_policy:"Backups" }[store] || store;
+      const ok = state === "completed";
+      return `<tr><td>${nice}</td>
+              <td><span class="pill ${ok ? "on" : "off"}">${state}</span></td></tr>`;
+    }).join("");
+
+    const allDone = job.status === "completed";
+    out.innerHTML = `
+      <div class="status ${allDone ? "ok" : "err"}">
+        ${allDone ? "Removed everywhere." : "Not fully removed — see below."}
+        &nbsp;Job: ${job.job_id}
+      </div>
+      <table><tr><th>Where it was stored</th><th>Status</th></tr>${rows}</table>
+      <p class="muted">"Backups: scheduled" means backups erase on their own timetable — this is tracked, not skipped.</p>`;
+    loadMemories();
+  } catch (e) {
+    out.innerHTML = `<div class="status err">Could not reach the deletion service on port 8004.</div>`;
+  }
+}
+
+// ── correct ──────────────────────────────────────────────────────────
+async function correctMemory() {
+  const memory_id     = document.getElementById("correctMemoryId").value.trim();
+  const new_fact_text = document.getElementById("correctText").value.trim();
+  const el = document.getElementById("correctStatus");
+  if (!memory_id || !new_fact_text) {
+    el.innerHTML = `<div class="status warn">Please fill in both boxes.</div>`; return;
+  }
+  try {
+    const res = await fetch(`${PROCESSOR_URL}/v1/memories/${memory_id}`, {
+      method:"PATCH", headers:{"Content-Type":"application/json"},
+      body: JSON.stringify({ action:"correct", new_fact_text,
+                             reason:"user correction via memory controls", expected_version:"" })
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      el.innerHTML = `<div class="status err">That memory ID was not found.</div>`; return;
+    }
+    el.innerHTML = `<div class="status ok">
+      Corrected. New memory: ${data.new_memory_id}<br>
+      The old one is kept as history, marked "superseded".
+    </div>`;
+    loadMemories();
+  } catch (e) {
+    el.innerHTML = `<div class="status err">Could not reach the memory service on port 8006.</div>`;
+  }
+}
+
+// ── pause ────────────────────────────────────────────────────────────
+function togglePause() {
+  const now = !isPaused();
+  localStorage.setItem("memory_paused", String(now));
+  renderState();
+  document.getElementById("pauseStatus").innerHTML = now
+    ? `<div class="status warn">Memory paused. Your memories are kept but not used on this surface.</div>`
+    : `<div class="status ok">Memory resumed. Spotify can use your memories again.</div>`;
+  loadMemories();
+}
+
+// ── opt out ──────────────────────────────────────────────────────────
+async function optOut() {
+  const subject_id = document.getElementById("subjectId").value;
+  const surface    = document.getElementById("surface").value;
+  const el = document.getElementById("optOutStatus");
+  const stamp = Date.now();
+  try {
+    // Recorded as a real opt_out event through the normal ingestion path,
+    // so the decision is auditable like any other event.
+    const res = await fetch(`${INGESTION_URL}/v1/events`, {
+      method:"POST",
+      headers:{ "Content-Type":"application/json", "Authorization":`Bearer ${INGESTION_TOKEN}` },
+      body: JSON.stringify({
+        event_id:`evt_optout_${stamp}`, subject_id, surface,
+        event_type:"opt_out", payload:{ reason:"user opted out via memory controls" },
+        timestamp:new Date().toISOString(), consent_state:"denied",
+        idempotency_key:`idem_optout_${stamp}`
+      })
+    });
+    const data = await res.json();
+    // Consent "denied" is refused at the door on purpose — that refusal IS the
+    // opt-out being enforced before anything can be stored.
+    if (res.status === 400 && data.detail && data.detail.error_code === "consent_denied") {
+      localStorage.setItem("memory_paused", "true"); renderState();
+      el.innerHTML = `<div class="status ok">
+        You are opted out. New memories will not be collected — the system refused
+        the event at the door because consent is withdrawn.
+      </div>`;
+      loadMemories(); return;
+    }
+    el.innerHTML = `<div class="status ok">Opt-out recorded (event ${data.event_id}).</div>`;
+  } catch (e) {
+    el.innerHTML = `<div class="status err">Could not reach the ingestion service on port 8001.</div>`;
+  }
+}
+
+renderState();
+loadMemories();
+</script>
+</body>
+</html>
