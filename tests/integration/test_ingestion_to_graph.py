@@ -12,9 +12,9 @@ sys.path.insert(0, str(repo_root / "services" / "memory-processor"))
 from datetime import UTC, datetime
 
 from classifier import classify
-from memory_store import InMemoryGraphStore
 
 from packages.contracts import InteractionEvent
+from tests.doubles.graph_store import InMemoryGraphStore
 
 
 def test_explicit_statement_flows_to_graph():

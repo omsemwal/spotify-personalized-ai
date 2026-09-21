@@ -6,7 +6,7 @@ risks, and rollback readiness."*
 
 **Measured:** 21 September 2026
 **Environment:** local pilot stack — Neo4j 5, Redpanda v23.2.1, PostgreSQL 15,
-six services on ports 8001–8006, `LOCAL_MODE=false`
+six services on ports 8001–8006, against the real datastores
 **Method:** every number below was produced by calling the running system. No
 figure is estimated.
 
@@ -147,7 +147,7 @@ retention cycle, and the job tracks that rather than claiming instant erasure.
 | Retrieval API killed mid-operation | composer fails open, no partial context | `fallback_used = true`, `fallback_reason = retrieval_api_unavailable_or_timeout` — **PASS** |
 | Deletion service restarted | job status survives | job returned `200` with full per-store status after a restart — **PASS** |
 | Kafka client missing | ingestion degrades, does not crash | falls back to the in-process queue |
-| Neo4j unreachable | services start, use in-memory store | `LOCAL_MODE` fallback path |
+| Neo4j unreachable | services refuse to start; `/health` returns 503 | U4 removed the in-memory fallback — see docs/PLAN.md |
 
 The deletion durability test is the meaningful one: before deletion jobs were
 persisted to PostgreSQL, the same request after a restart returned `404`.
@@ -193,11 +193,12 @@ there is no cohort experiment framework in the pilot.
 | Operational store | `001_postgres_operational_store.sql` carries a commented rollback block dropping all six tables |
 | Services | Stateless containers; redeploy a previous image |
 | Contracts | All at `1.0.0`; `tests/contract/test_schema_backward_compatibility.py` guards future changes |
-| Config | `LOCAL_MODE=true` disables every external dependency and keeps the APIs serving |
+| Config | none. There is no setting that runs the services without their datastores |
 
-**Fastest safe rollback:** set `LOCAL_MODE=true` and restart. Every service then
-runs on in-process adapters, the APIs keep responding, and no user request fails
-— at the cost of shared state. This is the fail-open posture §5.5 requires.
+**Fastest safe rollback:** redeploy the previous image tag. The previous
+rollback instruction here was to set `LOCAL_MODE=true`, which did not roll
+anything back — it switched every service to in-process dictionaries, so the
+system kept answering while storing nothing. That setting no longer exists.
 
 ---
 

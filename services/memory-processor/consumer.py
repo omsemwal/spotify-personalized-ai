@@ -5,9 +5,12 @@ consumer classifies it, applies the policy gate, and writes time-bounded facts
 to the temporal graph — so the user path is never blocked by graph-write
 latency (§5.4 "Interaction capture must be asynchronous").
 
-Runs in a daemon thread started by main.py. When LOCAL_MODE=true, or the broker
-is unreachable, the consumer simply does not start: the service still serves its
-three synchronous APIs, matching the fail-open posture in §5.5 Reliability.
+Runs in a daemon thread started by main.py. If the broker is unreachable the
+service does not start at all. It used to carry on serving its synchronous APIs
+with no consumer running, described as fail-open — but that is not what §5.5
+means by failing open. Fail-open is retrieval answering without personalization,
+which the user sees. A processor with no consumer looks perfectly healthy while
+silently writing no memory at all, which nobody sees.
 """
 import json
 import logging
@@ -99,16 +102,26 @@ def _consume_loop(store):
             log.exception("failed processing event=%s", event.event_id)
 
 
+class ConsumerUnavailable(RuntimeError):
+    """The queue consumer could not be started."""
+
+
 def start_consumer(store) -> bool:
-    """Start the consumer thread. Returns True if it was started."""
-    if os.getenv("LOCAL_MODE", "true").lower() == "true":
-        log.info("LOCAL_MODE=true — queue consumer not started")
-        return False
+    """Start the consumer thread.
+
+    This used to return False and log a line when the broker or the client was
+    missing, which meant the processor started "successfully" while nothing was
+    draining the queue. Events piled up on the broker, ingestion kept returning
+    202, and no memory was ever written — with a green health check throughout.
+
+    It now raises, so the service fails to start and the failure is visible.
+    """
     try:
         from kafka import KafkaConsumer  # noqa: F401  (import check before threading)
-    except ImportError:
-        log.warning("kafka client not installed — queue consumer not started")
-        return False
+    except ImportError as exc:
+        raise ConsumerUnavailable(
+            "the kafka client is not installed. Run `./scripts/dev.sh install`."
+        ) from exc
 
     thread = threading.Thread(target=_consume_loop, args=(store,), daemon=True)
     thread.start()

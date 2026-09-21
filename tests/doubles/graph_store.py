@@ -1,11 +1,25 @@
 """
-In-memory implementation of the same interface as TemporalGraphStore (graph.py).
+Test double for TemporalGraphStore (packages/graph-schema/graph.py).
 
-Why this exists: it lets memory-processor, retrieval-api, and tests/ run and be
-verified WITHOUT a live Neo4j instance — useful for unit tests (tests/unit/) and
-for local development before docker-compose is running. Swap this for
-TemporalGraphStore in production via dependency injection; see each service's
-`get_graph_store()` factory.
+This lives under tests/ deliberately. It used to sit in packages/graph-schema
+next to the real store, and every service could — and did — fall back to it
+whenever Neo4j was unreachable. A test double reachable from production code is
+a production dependency, whatever the docstring says.
+
+Nothing outside tests/ imports this module now. Tests inject it explicitly:
+
+    from store_factory import reset_graph_store, set_graph_store
+    from tests.doubles.graph_store import InMemoryGraphStore
+
+    set_graph_store(InMemoryGraphStore())
+    ...
+    reset_graph_store()
+
+It implements the same interface as the real store, so a test written against
+it exercises the same calls. It does not implement the same *guarantees* —
+there are no constraints, no transactions and no durability — so behaviour that
+depends on those (idempotent upserts, uniqueness, subject partitioning) has to
+be tested against a live Neo4j instead. Those tests arrive in U7.
 """
 from datetime import datetime
 from typing import Any

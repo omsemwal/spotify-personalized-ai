@@ -15,9 +15,9 @@ from datetime import UTC, datetime
 
 from classifier import classify
 from composer import compose_context
-from memory_store import InMemoryGraphStore
 
 from packages.contracts import InteractionEvent
+from tests.doubles.graph_store import InMemoryGraphStore
 
 
 def test_capture_through_context_injection():

@@ -80,7 +80,7 @@ def _run_deletion(job_id: str, memory_id: str):
 @app.get("/health")
 def health_check():
     return {"status": "ok", "service": "deletion-orchestrator",
-            "operational_store": operational_store.get_backend()}
+            "operational_store": operational_store.status()}
 
 
 @app.delete("/v1/memories/{memory_id}", status_code=status.HTTP_202_ACCEPTED)

@@ -7,13 +7,8 @@ rollback artifacts."
 Run once per environment via `python constraints.py` (or as a migration step,
 see infrastructure/database-migrations/).
 """
-import os
-
+from graph import connection_settings
 from neo4j import GraphDatabase
-
-NEO4J_URI = os.getenv("NEO4J_URI", "bolt://localhost:7687")
-NEO4J_USER = os.getenv("NEO4J_USER", "neo4j")
-NEO4J_PASSWORD = os.getenv("NEO4J_PASSWORD", "neo4j_password_secure")
 
 # Uniqueness constraints double as indexes in Neo4j and make MERGE idempotent.
 CONSTRAINTS = [
@@ -28,7 +23,8 @@ CONSTRAINTS = [
 
 
 def apply_constraints():
-    driver = GraphDatabase.driver(NEO4J_URI, auth=(NEO4J_USER, NEO4J_PASSWORD))
+    uri, user, password = connection_settings()
+    driver = GraphDatabase.driver(uri, auth=(user, password))
     with driver.session() as session:
         for stmt in CONSTRAINTS:
             session.run(stmt)

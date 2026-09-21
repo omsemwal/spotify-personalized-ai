@@ -64,7 +64,7 @@ class SearchRequest(BaseModel):
 @app.get("/health")
 def health_check():
     return {"status": "ok", "service": "retrieval-api",
-            "operational_store": operational_store.get_backend(),
+            "operational_store": operational_store.status(),
             "vector_index": "neo4j" if hasattr(graph_store, "vector_search") else "in_process"}
 
 

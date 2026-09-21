@@ -4,7 +4,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "packages" / "graph-schema"))
 
-from memory_store import InMemoryGraphStore
+from tests.doubles.graph_store import InMemoryGraphStore
 
 
 def test_correction_supersedes_without_deleting():

@@ -143,7 +143,6 @@ Full list in `.env.example`. The ones that matter:
 
 | Variable | Meaning |
 |---|---|
-| `LOCAL_MODE` | `true` = every service uses in-process adapters, no databases needed. `false` = use the real stack. |
 | `NEO4J_URI` / `NEO4J_USER` / `NEO4J_PASSWORD` | Graph store |
 | `KAFKA_BOOTSTRAP_SERVERS` | `localhost:19092` from the host; `redpanda:9092` inside compose |
 | `POSTGRES_HOST` / `POSTGRES_PORT` | `localhost:5433` from the host; `postgres:5432` inside compose |
@@ -160,25 +159,19 @@ container.
 
 ## Run locally
 
-### Option A — full stack (what the pilot is tested against)
+There is one way to run this, and it needs the datastores. Every service
+connects at startup and refuses to start if a dependency is unreachable — see
+`docs/PLAN.md` U4 for why the previous "run without databases" mode was removed.
 
 ```bash
-# 1. Start the databases. Docker Desktop must be running.
-docker compose up -d neo4j redpanda postgres api-gateway
+# 1. Start the datastores and apply the migrations. Docker Desktop must be running.
+./scripts/dev.sh up
 
-# 2. Apply the operational-store migration (once)
-docker exec -i memory_system_postgres \
-  psql -U postgres -d memory_system < infrastructure/database-migrations/001_postgres_operational_store.sql
-
-# 3. Install dependencies
+# 2. Install dependencies
 python -m venv .venv
-.venv/Scripts/python.exe -m pip install -e packages/contracts
-for s in ingestion-api memory-processor retrieval-api context-composer deletion-orchestrator memory-mcp-server; do
-  .venv/Scripts/python.exe -m pip install -r services/$s/requirements.txt
-done
+./scripts/dev.sh install
 
-# 4. Start the six services
-export LOCAL_MODE=false
+# 3. Start the six services
 export NEO4J_URI=bolt://localhost:7687 NEO4J_USER=neo4j NEO4J_PASSWORD=neo4j_password_secure
 export KAFKA_BOOTSTRAP_SERVERS=localhost:19092
 export POSTGRES_HOST=localhost POSTGRES_PORT=5433
@@ -192,7 +185,7 @@ done
 ```
 
 ```bash
-# 5. Start the API gateway (single entry point on 8080)
+# 4. Start the API gateway (single entry point on 8080)
 docker compose up -d api-gateway
 ```
 
@@ -203,15 +196,17 @@ than the rest because it connects to Kafka on startup:
 for p in 8001 8002 8003 8004 8005 8006; do echo -n "$p: "; curl -s http://localhost:$p/health; echo; done
 ```
 
-Two values confirm the real stack is wired:
-`8001` → `"local_mode": false` and `8006` → `"queue_consumer": true`.
+Each `/health` response lists its dependencies and whether they are reachable
+right now, and returns 503 if any are not:
 
-### Option B — local mode, no databases
-
-```bash
-export LOCAL_MODE=true
-# start the same six services as above
+```json
+{"status": "ok", "service": "ingestion-api",
+ "dependencies": {"queue": {"backend": "kafka", "reachable": true},
+                  "idempotency": {"backend": "redis", "reachable": true}}}
 ```
+
+The check re-runs on every call rather than reporting the state at startup, so
+stopping a container turns it red.
 
 Every service falls back to in-process adapters. Useful for unit work, but
 services do **not** share data in this mode — each keeps its own store.

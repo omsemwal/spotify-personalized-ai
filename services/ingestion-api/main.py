@@ -15,14 +15,14 @@ sys.path.insert(0, str(_repo_root))
 sys.path.insert(0, str(_repo_root / "packages" / "graph-schema"))
 sys.path.insert(0, str(_repo_root / "packages" / "policy-engine"))
 
-from datetime import datetime
+from datetime import UTC, datetime
 
 from auth import verify_service_token
-from fastapi import Depends, FastAPI, HTTPException, status
+from fastapi import Depends, FastAPI, HTTPException, Response, status
 from fastapi.middleware.cors import CORSMiddleware
-from idempotency_adapter import IdempotencyAdapter
+from idempotency_adapter import IdempotencyAdapter, IdempotencyStoreUnavailable
 from pydantic import ValidationError
-from queue_adapter import QueueAdapter
+from queue_adapter import QueueAdapter, QueueUnavailable
 
 from packages.contracts import SCHEMA_VERSION, InteractionEvent
 
@@ -49,8 +49,22 @@ queue = QueueAdapter()
 
 
 @app.get("/health")
-def health_check():
-    return {"status": "ok", "service": "ingestion-api", "local_mode": queue.local_mode}
+def health_check(response: Response):
+    """Reports the live state of each dependency, not the state at boot.
+
+    A health check that cannot go red is not a health check. If Redis or the
+    broker dies after startup, this returns 503 and the orchestrator can act on
+    it (§5.5 Deployment readiness: "Every service must have health checks").
+    """
+    dependencies = {"queue": queue.status(), "idempotency": idempotency.status()}
+    healthy = all(d.get("reachable") for d in dependencies.values())
+    if not healthy:
+        response.status_code = status.HTTP_503_SERVICE_UNAVAILABLE
+    return {
+        "status": "ok" if healthy else "degraded",
+        "service": "ingestion-api",
+        "dependencies": dependencies,
+    }
 
 
 @app.post("/v1/events", status_code=status.HTTP_202_ACCEPTED)
@@ -77,19 +91,39 @@ async def ingest_event(raw_event: dict, service_name: str = Depends(verify_servi
             "error_code": "consent_denied", "message": "Subject consent denied for event ingestion"
         })
 
-    # 4. Idempotency check.
-    if idempotency.seen(event.idempotency_key):
+    # 4. Idempotency. One atomic claim rather than a check followed by a write:
+    #    two concurrent requests with the same key could both pass a separate
+    #    check before either recorded it, and both would be accepted.
+    try:
+        claimed = idempotency.claim(event.idempotency_key)
+    except IdempotencyStoreUnavailable as exc:
+        # Cannot prove this is not a duplicate, so do not accept it. Returning
+        # 503 tells the caller to retry, which is safe precisely because the
+        # operation is idempotent.
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail={
+            "error_code": "dependency_unavailable",
+            "message": f"idempotency store unavailable: {exc}",
+        }) from exc
+
+    if not claimed:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail={
             "error_code": "duplicate_event", "message": "idempotency_key already processed"
         })
-    idempotency.mark_seen(event.idempotency_key)
 
-    # 5. Publish — async, does not block on downstream graph/vector writes.
-    queue.publish(event.model_dump(mode="json"))
+    # 5. Publish. The user path does not wait on the graph write, but it does
+    #    wait for the broker to acknowledge — otherwise 202 would be a promise
+    #    we cannot keep (§4 Backend Engineering Lead: "a durable queue").
+    try:
+        queue.publish(event.model_dump(mode="json"))
+    except QueueUnavailable as exc:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail={
+            "error_code": "dependency_unavailable",
+            "message": f"event queue unavailable: {exc}",
+        }) from exc
 
     return {
         "status": "accepted",
         "event_id": event.event_id,
         "accepted_by": service_name,
-        "accepted_at": datetime.utcnow().isoformat(),
+        "accepted_at": datetime.now(UTC).isoformat(),
     }

@@ -20,7 +20,7 @@ from datetime import UTC, datetime
 import httpx
 import operational_store
 from composer import compose_context
-from fastapi import FastAPI
+from fastapi import FastAPI, Response
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
@@ -68,9 +68,19 @@ class ComposeRequest(BaseModel):
 
 
 @app.get("/health")
-def health_check():
-    return {"status": "ok", "service": "context-composer",
-            "operational_store": operational_store.get_backend()}
+def health_check(response: Response):
+    """Live dependency state, re-checked on every call (§5.5 Deployment
+    readiness). Returns 503 when a dependency is unreachable, so the outage is
+    visible rather than being absorbed by a fallback."""
+    dependencies = {"operational_store": operational_store.status()}
+    healthy = all(d.get("reachable") for d in dependencies.values())
+    if not healthy:
+        response.status_code = 503
+    return {
+        "status": "ok" if healthy else "degraded",
+        "service": "context-composer",
+        "dependencies": dependencies,
+    }
 
 
 @app.post("/v1/context/compose", response_model=ContextPackage)

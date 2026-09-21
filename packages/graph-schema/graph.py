@@ -4,16 +4,53 @@ from typing import Any
 
 from neo4j import GraphDatabase
 
-NEO4J_URI = os.getenv("NEO4J_URI", "bolt://localhost:7687")
-NEO4J_USER = os.getenv("NEO4J_USER", "neo4j")
-NEO4J_PASSWORD = os.getenv("NEO4J_PASSWORD", "neo4j_password_secure")
+DEFAULT_URI = "bolt://localhost:7687"
+
+
+def connection_settings() -> tuple[str, str, str]:
+    """Read connection settings from the environment, at call time.
+
+    These used to be module-level constants, which froze the configuration at
+    import. That is wrong in two ways: a process could not be pointed at a
+    different database after the module was first imported, and it made the
+    behaviour depend on *when* the import happened rather than on the
+    environment — which is exactly the kind of implicit state this unit is
+    removing.
+    """
+    return (
+        os.getenv("NEO4J_URI", DEFAULT_URI),
+        os.getenv("NEO4J_USER", "neo4j"),
+        os.getenv("NEO4J_PASSWORD", "neo4j_password_secure"),
+    )
+
 
 class TemporalGraphStore:
     def __init__(self):
-        self.driver = GraphDatabase.driver(NEO4J_URI, auth=(NEO4J_USER, NEO4J_PASSWORD))
+        uri, user, password = connection_settings()
+        self.uri = uri
+        # Bounded timeouts. The driver's defaults retry for ~30 seconds, which
+        # turns "Neo4j is down" into a request that appears to hang. Failing in
+        # a few seconds is what lets the health check and the 250 ms retrieval
+        # budget (§5.5 Performance) stay meaningful.
+        self.driver = GraphDatabase.driver(
+            uri,
+            auth=(user, password),
+            connection_timeout=float(os.getenv("NEO4J_CONNECTION_TIMEOUT", "5")),
+            max_transaction_retry_time=float(os.getenv("NEO4J_MAX_RETRY_TIME", "5")),
+        )
 
     def close(self):
         self.driver.close()
+
+    def verify_connectivity(self) -> None:
+        """Prove the database is actually reachable.
+
+        The Neo4j driver connects lazily, so constructing GraphDatabase.driver()
+        succeeds even when nothing is listening. Without this check a service
+        would start "successfully" and fail on its first real query instead.
+        Raises the driver's own exception, which carries the useful detail.
+        """
+        self.driver.verify_connectivity()
 
     def write_memory(self, memory_dict: dict[str, Any]) -> str:
         """Upsert memory node and link to User and Entity nodes in Neo4j."""

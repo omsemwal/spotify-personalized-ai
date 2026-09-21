@@ -19,12 +19,21 @@ processing pipeline.
    returns `202 Accepted` immediately. Graph/vector writes happen later in
    `services/memory-processor` and never block this request (§6.1 step 1).
 
-## Local-mode fallback
-`queue_adapter.py` and `idempotency_adapter.py` fall back to an in-process
-queue/dict when Redis or Kafka is unreachable (`LOCAL_MODE=true`, the default).
-This makes the service runnable and testable without the full docker-compose
-stack — flip `LOCAL_MODE=false` for real deployment against the stack in
-`infrastructure/`.
+## Dependencies are required, not optional
+`queue_adapter.py` and `idempotency_adapter.py` connect when they are
+constructed, and raise if they cannot. The service does not start without Redis
+and the broker.
+
+They used to fall back to an in-process queue and dictionary. That produced a
+service returning `202 Accepted` for events it was dropping on the next
+restart, and duplicate detection that silently stopped working as soon as a
+second replica existed — with a green health check throughout.
+
+Start the datastores first:
+
+```bash
+./scripts/dev.sh up
+```
 
 ## Run locally
 ```bash

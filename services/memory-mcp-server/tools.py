@@ -3,7 +3,6 @@ The 5 narrow, typed MCP tools (§5.4 "MCP and Tool Interface"). No tool here
 ever exposes a generic graph query — each is a single, authorized, audited
 operation with a fixed input/output contract from packages/contracts/mcp_tools.py.
 """
-import os
 import uuid
 
 import httpx
@@ -45,21 +44,15 @@ _STORE_SINGLETON = None
 
 
 def get_graph_store():
-    """Same DI pattern as the other services' store_factory.py — read-only here,
-    used to return real provenance for explain_memory_use."""
-    global _STORE_SINGLETON
-    if _STORE_SINGLETON is not None:
-        return _STORE_SINGLETON
-    if os.getenv("LOCAL_MODE", "true").lower() != "true":
-        try:
-            from graph import TemporalGraphStore
-            _STORE_SINGLETON = TemporalGraphStore()
-            return _STORE_SINGLETON
-        except Exception:
-            pass
-    from memory_store import InMemoryGraphStore
-    _STORE_SINGLETON = InMemoryGraphStore()
-    return _STORE_SINGLETON
+    """The shared graph store (packages/graph-schema/store_factory.py).
+
+    Read-only here — used to return real provenance for explain_memory_use. The
+    inline copy of the connect-or-fall-back-to-a-dict logic that used to live in
+    this file is gone; there is one implementation, and it does not fall back.
+    """
+    from store_factory import get_graph_store as _shared
+
+    return _shared()
 
 
 def _check_rate(subject_id: str, tool_name: str):

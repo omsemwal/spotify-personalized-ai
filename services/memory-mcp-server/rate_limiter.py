@@ -54,48 +54,73 @@ return allowed
 _script = None
 
 
+def _timeout() -> float:
+    """Socket timeout in seconds. Configurable so tests can fail fast."""
+    return float(os.getenv("REDIS_CONNECT_TIMEOUT", "2"))
+
+
+class RateLimiterUnavailable(RuntimeError):
+    """Redis could not be reached, so the rate limit cannot be enforced."""
+
+
 def _redis():
-    global _REDIS, _BACKEND, _script
+    global _REDIS, _script
     if _REDIS is not None:
         return _REDIS
-    if os.getenv("LOCAL_MODE", "true").lower() == "true":
-        return None
+    host = os.getenv("REDIS_HOST", "localhost")
+    port = int(os.getenv("REDIS_PORT", "6379"))
     try:
         import redis
+    except ImportError as exc:
+        raise RateLimiterUnavailable(
+            "the redis client is not installed. Run `./scripts/dev.sh install`."
+        ) from exc
+    try:
         client = redis.Redis(
-            host=os.getenv("REDIS_HOST", "localhost"),
-            port=int(os.getenv("REDIS_PORT", 6379)),
-            db=0, decode_responses=True,
-            socket_connect_timeout=2, socket_timeout=2,
+            host=host,
+            port=port,
+            db=int(os.getenv("REDIS_DB", "0")),
+            decode_responses=True,
+            # Bounded and retry-free. redis-py's own retry loop turns an
+            # unreachable host into a ~25 second hang, which is far too slow for
+            # a health check and hides an outage behind an apparent stall.
+            socket_connect_timeout=_timeout(),
+            socket_timeout=_timeout(),
+            retry=None,
         )
         client.ping()
         _script = client.register_script(_TOKEN_BUCKET_LUA)
-        _REDIS, _BACKEND = client, "redis"
-        return _REDIS
-    except Exception:
-        return None
+    except Exception as exc:
+        raise RateLimiterUnavailable(
+            f"cannot reach Redis at {host}:{port}: {exc}. "
+            "MCP tools refuse to run without a shared rate limiter."
+        ) from exc
+    _REDIS = client
+    return _REDIS
 
 
-def get_backend() -> str:
-    _redis()
-    return _BACKEND
+def status() -> dict:
+    try:
+        _redis().ping()
+    except Exception as exc:
+        return {"backend": "redis", "reachable": False, "error": str(exc).splitlines()[0]}
+    return {"backend": "redis", "reachable": True}
 
 
 def allow(subject_id: str, tool_name: str) -> bool:
+    """One token from this subject's bucket for this tool. False means refuse.
+
+    The per-process bucket that used to back this up has been removed. A local
+    bucket does not limit anything once more than one replica is running — each
+    replica hands out a full allowance — so it produced a rate limit that
+    reported success while enforcing nothing. §5.4 requires rate limits on every
+    tool, and §7.7 tests tool abuse, so this now fails closed: if the shared
+    limiter is unreachable the call is refused rather than silently unlimited.
+    """
     key = f"ratelimit:{subject_id}:{tool_name}"
-    client = _redis()
-
-    if client is not None:
-        try:
-            return bool(_script(keys=[key], args=[RATE_PER_SEC, CAPACITY, time.time(), TTL_SECONDS]))
-        except Exception:
-            pass  # fall through to the local bucket rather than refuse the call
-
-    bucket = _BUCKETS[key]
-    now = time.monotonic()
-    bucket["tokens"] = min(CAPACITY, bucket["tokens"] + (now - bucket["last"]) * RATE_PER_SEC)
-    bucket["last"] = now
-    if bucket["tokens"] >= 1.0:
-        bucket["tokens"] -= 1.0
-        return True
-    return False
+    try:
+        return bool(_script(keys=[key], args=[RATE_PER_SEC, CAPACITY, time.time(), TTL_SECONDS]))
+    except RateLimiterUnavailable:
+        raise
+    except Exception as exc:
+        raise RateLimiterUnavailable(f"rate-limit check failed for {tool_name!r}: {exc}") from exc

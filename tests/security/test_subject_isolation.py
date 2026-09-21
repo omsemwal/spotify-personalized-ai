@@ -5,7 +5,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "packages" / "graph-schema"))
 
-from memory_store import InMemoryGraphStore
+from tests.doubles.graph_store import InMemoryGraphStore
 
 
 def test_traverse_never_crosses_subject_boundary():

@@ -56,11 +56,10 @@ jobs:
           cache: pip
       - run: pip install -r requirements-dev.txt
       - run: pip install -e packages/contracts
-      # Until U4, the test suite runs against in-memory doubles rather than the
-      # real datastores, so no service containers are needed here. When U4
-      # lands, the integration tests get a `services:` block for Neo4j,
-      # Postgres, Redis and Redpanda.
+      # The tests that need real datastores skip themselves when the ports are
+      # closed (tests/conftest.py::requires_live_datastores), so CI runs the
+      # rest. U4's fail-loud tests still run here — they point adapters at a
+      # dead port and assert they raise, which needs no infrastructure.
       - run: pytest
         env:
-          LOCAL_MODE: "true"
           EMBEDDING_BACKEND: local_hash

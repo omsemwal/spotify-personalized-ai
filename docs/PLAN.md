@@ -160,7 +160,7 @@ matches §7.1 of the spec exactly. Here is the honest assessment.
 
 | Thing | Problem |
 |---|---|
-| **Silent fallbacks** | `LOCAL_MODE` defaults to `true` everywhere, and every adapter catches connection errors and quietly falls back to a Python dictionary. **A dead Neo4j looks exactly like a healthy one.** The README describes an architecture the running code is not using. This is the single most dangerous thing in the repo. |
+| ~~**Silent fallbacks**~~ | **FIXED in U4.** `LOCAL_MODE` is gone, every adapter raises on an unreachable dependency, and `tests/integration/test_no_silent_fallback.py` is the regression guard. |
 | `llm_extractor.py` | Calls **Gemini**, not Claude, and returns `[]` on any failure — so with no API key, "AI extraction" is pure if-statements and nothing says so. |
 | Frontend | Two static HTML files. §6.2 and §7.1 ask for Next.js apps, and §10 wants a deployed URL. |
 | Engineering basics | No CI, no linter config, no type checking, no dependency lock file. |
@@ -244,7 +244,7 @@ Work through these. The ones marked **blocking** stop a unit from starting.
 | D2 | **Anthropic API key and budget** — *blocking* | Extraction calls `claude-sonnet-5`. Get a key, put it in `.env` (never in git). Plan: record real responses as fixtures the first time, then replay them in tests and the demo, so CI and the video cost nothing and never flake. | U6 |
 | D3 | **Where the backend is deployed** | §10 wants a working deployed link. Vercel hosts the two Next.js apps, but it will not host six containers plus five databases. Options: (a) a small VM, or Render / Railway / Fly for the backend; (b) deploy the frontend only and demo the backend locally in the video, being explicit about it in the README. Option (a) scores better on the 8 deployment marks; (b) is free. | U17 |
 | D4 | **Auth depth for the pilot** | Today it is static bearer tokens in a dictionary. Options: keep that and document it as a pilot limitation, or issue short-lived signed JWTs. §5.5 says every read and write must bind to an authenticated subject — JWTs make the subject binding in U12 much more convincing. | U5, U12 |
-| D5 | **Drop Qdrant?** | `docker-compose.yml` declares Qdrant, but we chose Neo4j's native vector index. §6.2 lists them as alternatives, so using one is correct. Recommend removing Qdrant to cut one moving part — but that is a deletion, so confirm it first. | U4, U8 |
+| D5 | **Drop Qdrant?** — *still open* | `docker-compose.yml` still declares Qdrant, but nothing uses it: U4 wired the vector path to Neo4j's native index. §6.2 lists them as alternatives, so using one is correct. Removing Qdrant cuts a container nobody needs, but it is a deletion, so it waits for your confirmation. | U8 |
 | D6 | **Demo dataset** | `data/synthetic/` has six user histories. Decide which two or three the demo video follows, so the walkthrough is one coherent story rather than a tour of endpoints. | U13, U17 |
 | D7 | **Static HTML pages** | When the Next.js apps land, do the old `apps/*/index.html` files get deleted, or kept as a fallback? Recommend deleting — two UIs claiming to be the same surface is confusing to a reviewer. | U15, U16 |
 
@@ -613,7 +613,7 @@ needs the API contracts to exist.
 - [x] **U1** Repo hygiene and CI — branch `u01-repo-hygiene`, awaiting PR merge
 - [x] **U2** Memory taxonomy and contract freeze — branch `u02-contracts`, awaiting PR merge
 - [x] **U3** Policy engine v2 — branch `u03-policy-engine`, awaiting PR merge
-- [ ] **U4** Real infrastructure, no silent fallback
+- [x] **U4** Real infrastructure, no silent fallback — branch `u04-real-infrastructure`, awaiting PR merge
 - [ ] **U5** Ingestion API for real
 - [ ] **U6** Extraction and entity resolution
 - [ ] **U7** Temporal graph for real
@@ -650,9 +650,12 @@ Then work down the checklist in section 9, following the order in section 8.
 
 ## 11. Two risks worth repeating
 
-1. **The silent-fallback pattern is the biggest risk in this repo**, bigger than
-   any missing feature. Today a reviewer could run the stack, see everything
-   "work", and be looking at Python dictionaries. U4 fixes it, and it should not
-   be deferred.
+1. ~~**The silent-fallback pattern is the biggest risk in this repo.**~~
+   **Resolved in U4.** Every adapter now raises rather than substituting an
+   in-process dictionary, `/health` re-checks its dependencies on every call and
+   returns 503, and the test double lives under `tests/` where production code
+   cannot reach it. The three lint rules that were suppressed "until U4"
+   (`BLE001`, `S110`, `S112`) should be re-enabled in `pyproject.toml` — that is
+   the first task of whichever unit next touches those files.
 2. **Deletion and subject isolation are pass/fail** under §9, regardless of how
    good everything else is. U11 and U12 are not optional polish.
