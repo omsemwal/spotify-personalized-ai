@@ -1,0 +1,136 @@
+{
+  "$defs": {
+    "ExtractionCandidate": {
+      "description": "One candidate memory proposed from a single interaction event.\nFields mirror \u00a77.5's required structured-output fields exactly:\nmemory_id, decision, normalized_fact, entities, relevance_score, confidence,\ntemporal_scope, policy_flags, reason.",
+      "properties": {
+        "memory_id": {
+          "description": "Proposed stable id (deterministic hash of subject+fact+source)",
+          "title": "Memory Id",
+          "type": "string"
+        },
+        "decision": {
+          "enum": [
+            "accept",
+            "reject",
+            "needs_confirmation"
+          ],
+          "title": "Decision",
+          "type": "string"
+        },
+        "normalized_fact": {
+          "title": "Normalized Fact",
+          "type": "string"
+        },
+        "entities": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Entities",
+          "type": "array"
+        },
+        "memory_type": {
+          "enum": [
+            "episode",
+            "explicit_preference",
+            "candidate_preference",
+            "exclusion",
+            "correction"
+          ],
+          "title": "Memory Type",
+          "type": "string"
+        },
+        "relevance_score": {
+          "maximum": 1.0,
+          "minimum": 0.0,
+          "title": "Relevance Score",
+          "type": "number"
+        },
+        "confidence": {
+          "maximum": 1.0,
+          "minimum": 0.0,
+          "title": "Confidence",
+          "type": "number"
+        },
+        "temporal_scope": {
+          "enum": [
+            "episodic",
+            "durable"
+          ],
+          "title": "Temporal Scope",
+          "type": "string"
+        },
+        "policy_flags": {
+          "description": "e.g. ['sensitive_inference_blocked']",
+          "items": {
+            "type": "string"
+          },
+          "title": "Policy Flags",
+          "type": "array"
+        },
+        "policy_class": {
+          "default": "normal",
+          "enum": [
+            "normal",
+            "sensitive",
+            "blocked"
+          ],
+          "title": "Policy Class",
+          "type": "string"
+        },
+        "reason": {
+          "description": "Why this decision was made \u2014 required for provenance",
+          "title": "Reason",
+          "type": "string"
+        },
+        "source_event_id": {
+          "title": "Source Event Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "memory_id",
+        "decision",
+        "normalized_fact",
+        "memory_type",
+        "relevance_score",
+        "confidence",
+        "temporal_scope",
+        "reason",
+        "source_event_id"
+      ],
+      "title": "ExtractionCandidate",
+      "type": "object"
+    }
+  },
+  "properties": {
+    "event_id": {
+      "title": "Event Id",
+      "type": "string"
+    },
+    "candidates": {
+      "items": {
+        "$ref": "#/$defs/ExtractionCandidate"
+      },
+      "title": "Candidates",
+      "type": "array"
+    },
+    "rejected_reason": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Set when the event yields zero candidates",
+      "title": "Rejected Reason"
+    }
+  },
+  "required": [
+    "event_id"
+  ],
+  "title": "ExtractionResult",
+  "type": "object"
+}

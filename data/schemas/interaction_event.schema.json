@@ -1,0 +1,85 @@
+{
+  "description": "A single eligible interaction event entering the system via the Ingestion API.\n\nEvery field here is required by \u00a75.4: subject scope, surface, locale, timestamp,\nconsent state, source-event identifier, and idempotency key must be attached to\nevery event before it is allowed into graph processing.",
+  "properties": {
+    "schema_version": {
+      "default": "1.0.0",
+      "description": "Contract version for compatibility checks",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "event_id": {
+      "description": "Unique source-event identifier",
+      "title": "Event Id",
+      "type": "string"
+    },
+    "subject_id": {
+      "description": "Authenticated subject (user) scope",
+      "title": "Subject Id",
+      "type": "string"
+    },
+    "surface": {
+      "description": "Originating AI surface, e.g. 'music_chat', 'playlist_ui', 'podcast_chat'",
+      "title": "Surface",
+      "type": "string"
+    },
+    "event_type": {
+      "description": "Interaction classification",
+      "enum": [
+        "play",
+        "save",
+        "follow",
+        "skip",
+        "statement",
+        "correction",
+        "opt_out",
+        "delete_request"
+      ],
+      "title": "Event Type",
+      "type": "string"
+    },
+    "payload": {
+      "additionalProperties": true,
+      "description": "Event-type-specific structured payload",
+      "title": "Payload",
+      "type": "object"
+    },
+    "locale": {
+      "default": "en-US",
+      "description": "Locale context of the interaction",
+      "title": "Locale",
+      "type": "string"
+    },
+    "timestamp": {
+      "description": "Client-reported time of occurrence (UTC)",
+      "format": "date-time",
+      "title": "Timestamp",
+      "type": "string"
+    },
+    "consent_state": {
+      "description": "Consent status at time of capture",
+      "enum": [
+        "granted",
+        "denied",
+        "partial"
+      ],
+      "title": "Consent State",
+      "type": "string"
+    },
+    "idempotency_key": {
+      "description": "Client-supplied key; duplicate keys must not double-write",
+      "title": "Idempotency Key",
+      "type": "string"
+    }
+  },
+  "required": [
+    "event_id",
+    "subject_id",
+    "surface",
+    "event_type",
+    "timestamp",
+    "consent_state",
+    "idempotency_key"
+  ],
+  "title": "InteractionEvent",
+  "type": "object"
+}

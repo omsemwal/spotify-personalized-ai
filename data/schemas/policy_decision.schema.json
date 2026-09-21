@@ -1,0 +1,47 @@
+{
+  "properties": {
+    "memory_id": {
+      "title": "Memory Id",
+      "type": "string"
+    },
+    "allowed": {
+      "title": "Allowed",
+      "type": "boolean"
+    },
+    "policy_class": {
+      "enum": [
+        "normal",
+        "sensitive",
+        "blocked"
+      ],
+      "title": "Policy Class",
+      "type": "string"
+    },
+    "rejection_codes": {
+      "description": "e.g. ['expired','contradicted','low_confidence','surface_ineligible']",
+      "items": {
+        "type": "string"
+      },
+      "title": "Rejection Codes",
+      "type": "array"
+    },
+    "retention_days": {
+      "title": "Retention Days",
+      "type": "integer"
+    },
+    "reviewed_by": {
+      "default": "policy_engine",
+      "description": "'policy_engine' for automatic, else reviewer id",
+      "title": "Reviewed By",
+      "type": "string"
+    }
+  },
+  "required": [
+    "memory_id",
+    "allowed",
+    "policy_class",
+    "retention_days"
+  ],
+  "title": "PolicyDecision",
+  "type": "object"
+}

@@ -1,0 +1,104 @@
+{
+  "$defs": {
+    "ContextItem": {
+      "properties": {
+        "memory_id": {
+          "title": "Memory Id",
+          "type": "string"
+        },
+        "fact": {
+          "description": "Quoted as DATA, never concatenated into system instructions",
+          "title": "Fact",
+          "type": "string"
+        },
+        "memory_type": {
+          "title": "Memory Type",
+          "type": "string"
+        },
+        "confidence": {
+          "title": "Confidence",
+          "type": "number"
+        },
+        "source_class": {
+          "description": "Provenance class, e.g. 'explicit_statement', 'repeated_evidence'",
+          "title": "Source Class",
+          "type": "string"
+        },
+        "recorded_at": {
+          "title": "Recorded At",
+          "type": "string"
+        },
+        "relevance_reason": {
+          "title": "Relevance Reason",
+          "type": "string"
+        }
+      },
+      "required": [
+        "memory_id",
+        "fact",
+        "memory_type",
+        "confidence",
+        "source_class",
+        "recorded_at",
+        "relevance_reason"
+      ],
+      "title": "ContextItem",
+      "type": "object"
+    }
+  },
+  "properties": {
+    "subject_id": {
+      "title": "Subject Id",
+      "type": "string"
+    },
+    "surface": {
+      "title": "Surface",
+      "type": "string"
+    },
+    "intent": {
+      "title": "Intent",
+      "type": "string"
+    },
+    "items": {
+      "items": {
+        "$ref": "#/$defs/ContextItem"
+      },
+      "title": "Items",
+      "type": "array"
+    },
+    "fallback_used": {
+      "default": false,
+      "description": "True = no-memory deterministic fallback was returned",
+      "title": "Fallback Used",
+      "type": "boolean"
+    },
+    "fallback_reason": {
+      "default": "",
+      "description": "Set when fallback_used is True",
+      "title": "Fallback Reason",
+      "type": "string"
+    },
+    "token_budget": {
+      "title": "Token Budget",
+      "type": "integer"
+    },
+    "token_count": {
+      "title": "Token Count",
+      "type": "integer"
+    },
+    "trace_id": {
+      "title": "Trace Id",
+      "type": "string"
+    }
+  },
+  "required": [
+    "subject_id",
+    "surface",
+    "intent",
+    "token_budget",
+    "token_count",
+    "trace_id"
+  ],
+  "title": "ContextPackage",
+  "type": "object"
+}

@@ -240,7 +240,7 @@ Work through these. The ones marked **blocking** stop a unit from starting.
 
 | # | Decision | Notes | Blocks |
 |---|---|---|---|
-| D1 | **Python version** — *blocking* | The venv is on Python **3.14**. SentenceTransformers depends on PyTorch, which typically lags new Python releases by months. Verify `pip install torch sentence-transformers` works on 3.14; if it does not, pin the project to **Python 3.12**. Do this first — it is cheap to check and expensive to discover late. | U1, U8 |
+| D1 | ~~**Python version**~~ — **RESOLVED: stay on 3.14** | `torch-2.14.0` publishes a `cp314` wheel and the whole `sentence-transformers` dependency tree resolves on Python 3.14. No downgrade needed. Lint, type check and CI are all pinned to 3.14 to match. | — |
 | D2 | **Anthropic API key and budget** — *blocking* | Extraction calls `claude-sonnet-5`. Get a key, put it in `.env` (never in git). Plan: record real responses as fixtures the first time, then replay them in tests and the demo, so CI and the video cost nothing and never flake. | U6 |
 | D3 | **Where the backend is deployed** | §10 wants a working deployed link. Vercel hosts the two Next.js apps, but it will not host six containers plus five databases. Options: (a) a small VM, or Render / Railway / Fly for the backend; (b) deploy the frontend only and demo the backend locally in the video, being explicit about it in the README. Option (a) scores better on the 8 deployment marks; (b) is free. | U17 |
 | D4 | **Auth depth for the pilot** | Today it is static bearer tokens in a dictionary. Options: keep that and document it as a pilot limitation, or issue short-lived signed JWTs. §5.5 says every read and write must bind to an authenticated subject — JWTs make the subject binding in U12 much more convincing. | U5, U12 |
@@ -610,8 +610,8 @@ needs the API contracts to exist.
 
 ## 9. Progress checklist
 
-- [ ] **U1** Repo hygiene and CI
-- [ ] **U2** Memory taxonomy and contract freeze
+- [x] **U1** Repo hygiene and CI — branch `u01-repo-hygiene`, awaiting PR merge
+- [x] **U2** Memory taxonomy and contract freeze — branch `u02-contracts`, awaiting PR merge
 - [ ] **U3** Policy engine v2
 - [ ] **U4** Real infrastructure, no silent fallback
 - [ ] **U5** Ingestion API for real
@@ -632,16 +632,17 @@ needs the API contracts to exist.
 
 ## 10. Where to start, concretely
 
-Your first working session, in order:
+**D1, U1 and U2 are done.** What is left for you right now:
 
-1. **Check D1.** Try `pip install torch sentence-transformers` on Python 3.14.
-   If it fails, rebuild the virtual environment on Python 3.12. Five minutes,
-   saves a day.
-2. **Start U1.** Create the branch `u01-repo-hygiene`, delete `fils`, deal with
-   the nine drifted files, add the lint / type / test configuration and the CI
-   workflow.
-3. **Open the pull request and watch CI go green.** That green check is what
-   every later unit leans on.
+1. **Open and merge the pull requests**, oldest first. There is no `gh` CLI on
+   this machine, so these have to be opened in the browser:
+   - `u01-repo-hygiene` — tooling and CI
+   - `u02-contracts` — taxonomy, contracts, JSON Schemas
+2. **Watch the first CI run.** It pins Python 3.14. If `actions/setup-python`
+   has no 3.14 build on the runner, the jobs fail at setup and CI drops to 3.13
+   — local development stays on 3.14 either way.
+3. **Resolve D2** (the Anthropic API key). It blocks U6, which is the largest
+   scoring unit in the plan.
 
 Then work down the checklist in section 9, following the order in section 8.
 

@@ -10,8 +10,15 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from packages.contracts import (
-    ContextPackage, ExtractionResult, FeedbackEvent, InteractionEvent,
-    Memory, PolicyDecision, Trace,
+    ContextPackage,
+    ExtractionResult,
+    FeedbackEvent,
+    InteractionEvent,
+    Memory,
+    PolicyDecision,
+    RetrievalCandidateSet,
+    Trace,
+    VectorRecord,
 )
 
 MODELS = {
@@ -22,6 +29,8 @@ MODELS = {
     "policy_decision.schema.json": PolicyDecision,
     "feedback_event.schema.json": FeedbackEvent,
     "trace.schema.json": Trace,
+    "retrieval_candidate_set.schema.json": RetrievalCandidateSet,
+    "vector_record.schema.json": VectorRecord,
 }
 
 if __name__ == "__main__":

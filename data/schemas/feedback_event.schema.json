@@ -1,0 +1,56 @@
+{
+  "properties": {
+    "trace_id": {
+      "title": "Trace Id",
+      "type": "string"
+    },
+    "subject_id": {
+      "title": "Subject Id",
+      "type": "string"
+    },
+    "memory_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Set when feedback targets one specific memory",
+      "title": "Memory Id"
+    },
+    "feedback_type": {
+      "enum": [
+        "relevant",
+        "irrelevant",
+        "correction",
+        "rejection",
+        "satisfaction_positive",
+        "satisfaction_negative"
+      ],
+      "title": "Feedback Type",
+      "type": "string"
+    },
+    "comment": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Comment"
+    }
+  },
+  "required": [
+    "trace_id",
+    "subject_id",
+    "feedback_type"
+  ],
+  "title": "FeedbackEvent",
+  "type": "object"
+}

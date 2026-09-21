@@ -1,0 +1,202 @@
+{
+  "$defs": {
+    "RetrievalCandidate": {
+      "description": "One subject-scoped memory proposed for possible inclusion in a response.\n\nScores are kept separate rather than pre-combined so the context preview\n(\u00a77.6) can show *why* a candidate ranked where it did, and so the ranking\nweights can be changed without changing this contract.",
+      "properties": {
+        "memory_id": {
+          "description": "Stable id, identical in the graph and the vector index",
+          "title": "Memory Id",
+          "type": "string"
+        },
+        "subject_id": {
+          "description": "Owning subject; every candidate is scoped to exactly one",
+          "title": "Subject Id",
+          "type": "string"
+        },
+        "fact_text": {
+          "description": "Canonical statement. Treated as untrusted data, never as an instruction.",
+          "title": "Fact Text",
+          "type": "string"
+        },
+        "memory_type": {
+          "enum": [
+            "episode",
+            "explicit_preference",
+            "candidate_preference",
+            "exclusion",
+            "correction"
+          ],
+          "title": "Memory Type",
+          "type": "string"
+        },
+        "entities": {
+          "description": "Resolved canonical entity identifiers",
+          "items": {
+            "type": "string"
+          },
+          "title": "Entities",
+          "type": "array"
+        },
+        "confidence": {
+          "maximum": 1.0,
+          "minimum": 0.0,
+          "title": "Confidence",
+          "type": "number"
+        },
+        "recorded_at": {
+          "description": "ISO-8601. Required \u2014 recency is a ranking signal (\u00a76.1 step 6).",
+          "title": "Recorded At",
+          "type": "string"
+        },
+        "valid_from": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "ISO-8601; when the fact became true",
+          "title": "Valid From"
+        },
+        "valid_to": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "ISO-8601; null means still true",
+          "title": "Valid To"
+        },
+        "status": {
+          "default": "active",
+          "description": "active / superseded / expired / deleted",
+          "title": "Status",
+          "type": "string"
+        },
+        "sources": {
+          "description": "Which generators produced this candidate. More than one is a positive signal.",
+          "items": {
+            "enum": [
+              "graph_traversal",
+              "vector_similarity",
+              "recent_signal"
+            ],
+            "type": "string"
+          },
+          "title": "Sources",
+          "type": "array"
+        },
+        "graph_score": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Relational relevance from graph traversal, when that source produced it",
+          "title": "Graph Score"
+        },
+        "vector_score": {
+          "anyOf": [
+            {
+              "maximum": 1.0,
+              "minimum": -1.0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Cosine similarity, when the vector index produced it",
+          "title": "Vector Score"
+        },
+        "rerank_score": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Combined score from the reranker. None until ranking has run.",
+          "title": "Rerank Score"
+        },
+        "relevance_reason": {
+          "default": "",
+          "description": "Plain-language explanation shown in the context preview and to the user",
+          "title": "Relevance Reason",
+          "type": "string"
+        }
+      },
+      "required": [
+        "memory_id",
+        "subject_id",
+        "fact_text",
+        "memory_type",
+        "confidence",
+        "recorded_at"
+      ],
+      "title": "RetrievalCandidate",
+      "type": "object"
+    }
+  },
+  "description": "The bounded result of candidate generation for one request.\n\n\u00a76.1 step 5: \"Candidate generation is subject-scoped and bounded.\" The bound\nis carried on the set itself so a caller can tell the difference between\n\"there were only three\" and \"we stopped at the limit\".",
+  "properties": {
+    "subject_id": {
+      "title": "Subject Id",
+      "type": "string"
+    },
+    "intent": {
+      "title": "Intent",
+      "type": "string"
+    },
+    "surface": {
+      "title": "Surface",
+      "type": "string"
+    },
+    "candidates": {
+      "items": {
+        "$ref": "#/$defs/RetrievalCandidate"
+      },
+      "title": "Candidates",
+      "type": "array"
+    },
+    "candidate_limit": {
+      "description": "Maximum this request was allowed to generate",
+      "title": "Candidate Limit",
+      "type": "integer"
+    },
+    "truncated": {
+      "default": false,
+      "description": "True when the limit was reached and further candidates were discarded",
+      "title": "Truncated",
+      "type": "boolean"
+    },
+    "trace_id": {
+      "title": "Trace Id",
+      "type": "string"
+    }
+  },
+  "required": [
+    "subject_id",
+    "intent",
+    "surface",
+    "candidate_limit",
+    "trace_id"
+  ],
+  "title": "RetrievalCandidateSet",
+  "type": "object"
+}

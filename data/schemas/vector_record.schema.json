@@ -1,0 +1,84 @@
+{
+  "description": "Metadata for one embedding. The vector itself lives in the index; this is\nthe record that makes the index auditable and erasable.\n\n`memory_id` is deliberately the same identifier used by the graph node. \u00a75.4\nrequires it: \"store vectors under the same stable memory identifier used in\nthe graph\". Any code that generates a separate vector id is a bug \u2014 it makes\ndeletion propagation unprovable.",
+  "properties": {
+    "memory_id": {
+      "description": "Identical to the graph fact's id. Not a separate vector id.",
+      "title": "Memory Id",
+      "type": "string"
+    },
+    "subject_id": {
+      "description": "Owning subject, so the index can be filtered before similarity search",
+      "title": "Subject Id",
+      "type": "string"
+    },
+    "embedding_model": {
+      "description": "e.g. 'sentence-transformers/all-MiniLM-L6-v2'",
+      "title": "Embedding Model",
+      "type": "string"
+    },
+    "embedding_model_version": {
+      "description": "Pinned version of that model. A change here invalidates every vector it produced.",
+      "title": "Embedding Model Version",
+      "type": "string"
+    },
+    "vector_dimension": {
+      "description": "Length of the stored vector; must match the index",
+      "exclusiveMinimum": 0,
+      "title": "Vector Dimension",
+      "type": "integer"
+    },
+    "approved_text_fields": {
+      "description": "Exactly which fields of the memory were embedded, e.g. ['fact_text']. \u00a75.4: 'Generate embeddings only for approved memory fields.'",
+      "items": {
+        "type": "string"
+      },
+      "title": "Approved Text Fields",
+      "type": "array"
+    },
+    "text_field_version": {
+      "description": "Version of the text-assembly rule used to build the embedded string. Changing how the text is composed must invalidate old vectors even when the model is unchanged.",
+      "title": "Text Field Version",
+      "type": "string"
+    },
+    "source_text_hash": {
+      "description": "Hash of the exact embedded string, so a stale vector can be detected without re-embedding",
+      "title": "Source Text Hash",
+      "type": "string"
+    },
+    "deletion_status": {
+      "default": "live",
+      "description": "'pending_deletion' is set the moment a deletion job starts, so retrieval stops using the vector before the index write completes. Prevents a deleted memory surfacing during propagation.",
+      "enum": [
+        "live",
+        "pending_deletion",
+        "deleted"
+      ],
+      "title": "Deletion Status",
+      "type": "string"
+    },
+    "policy_approved": {
+      "default": true,
+      "description": "A vector may only exist for a policy-approved fact (\u00a77.2 step 6). Recorded for audit.",
+      "title": "Policy Approved",
+      "type": "boolean"
+    },
+    "embedded_at": {
+      "description": "ISO-8601 timestamp of generation",
+      "title": "Embedded At",
+      "type": "string"
+    }
+  },
+  "required": [
+    "memory_id",
+    "subject_id",
+    "embedding_model",
+    "embedding_model_version",
+    "vector_dimension",
+    "approved_text_fields",
+    "text_field_version",
+    "source_text_hash",
+    "embedded_at"
+  ],
+  "title": "VectorRecord",
+  "type": "object"
+}

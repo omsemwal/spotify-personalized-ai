@@ -1,0 +1,79 @@
+{
+  "$defs": {
+    "TraceStage": {
+      "properties": {
+        "stage": {
+          "description": "One of: intake, extraction, graph_write, embedding_write, retrieval, reranking, policy_filter, context_injection, fallback",
+          "title": "Stage",
+          "type": "string"
+        },
+        "duration_ms": {
+          "title": "Duration Ms",
+          "type": "number"
+        },
+        "outcome": {
+          "title": "Outcome",
+          "type": "string"
+        },
+        "detail": {
+          "additionalProperties": true,
+          "description": "Redacted \u2014 no raw private content",
+          "title": "Detail",
+          "type": "object"
+        }
+      },
+      "required": [
+        "stage",
+        "duration_ms",
+        "outcome"
+      ],
+      "title": "TraceStage",
+      "type": "object"
+    }
+  },
+  "properties": {
+    "trace_id": {
+      "title": "Trace Id",
+      "type": "string"
+    },
+    "subject_id": {
+      "title": "Subject Id",
+      "type": "string"
+    },
+    "surface": {
+      "title": "Surface",
+      "type": "string"
+    },
+    "stages": {
+      "items": {
+        "$ref": "#/$defs/TraceStage"
+      },
+      "title": "Stages",
+      "type": "array"
+    },
+    "memory_ids_used": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Memory Ids Used",
+      "type": "array"
+    },
+    "fallback_used": {
+      "default": false,
+      "title": "Fallback Used",
+      "type": "boolean"
+    },
+    "total_latency_ms": {
+      "title": "Total Latency Ms",
+      "type": "number"
+    }
+  },
+  "required": [
+    "trace_id",
+    "subject_id",
+    "surface",
+    "total_latency_ms"
+  ],
+  "title": "Trace",
+  "type": "object"
+}

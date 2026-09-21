@@ -29,12 +29,15 @@ from .memory import (
     PolicyClass,
 )
 from .policy import PolicyDecision
+from .retrieval import CandidateSource, RetrievalCandidate, RetrievalCandidateSet
 from .tracing import Trace, TraceStage
+from .vectors import DeletionStatus, VectorAlignmentReport, VectorRecord
 
 __all__ = [
     "SCHEMA_VERSION",
     "AddExplicitPreferenceInput",
     "AddExplicitPreferenceOutput",
+    "CandidateSource",
     "ConsentState",
     "ContextItem",
     "ContextPackage",
@@ -42,6 +45,7 @@ __all__ = [
     "CorrectMemoryOutput",
     "DeleteMemoryInput",
     "DeleteMemoryOutput",
+    "DeletionStatus",
     "EventRejectionReason",
     "EventType",
     "ExplainMemoryUseInput",
@@ -57,9 +61,13 @@ __all__ = [
     "MemoryType",
     "PolicyClass",
     "PolicyDecision",
+    "RetrievalCandidate",
+    "RetrievalCandidateSet",
     "SearchMemoryInput",
     "SearchMemoryOutput",
     "SearchMemoryResult",
     "Trace",
     "TraceStage",
+    "VectorAlignmentReport",
+    "VectorRecord",
 ]
