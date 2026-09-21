@@ -1,0 +1,83 @@
+# Tooling configuration for the Spotify Personalized AI Memory System.
+#
+# This file configures the linter and type checker only. It is deliberately not
+# a packaging manifest — the services are run as containers, and
+# packages/contracts keeps its own setup.py so it can be pip-installed.
+#
+# Build plan: docs/PLAN.md
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Ruff — linter and import sorter
+# ─────────────────────────────────────────────────────────────────────────────
+[tool.ruff]
+line-length = 100
+target-version = "py314"
+extend-exclude = [".venv", "data/schemas", "docs"]
+
+[tool.ruff.lint]
+select = [
+    "E",    # pycodestyle errors
+    "F",    # pyflakes — undefined names, unused imports
+    "I",    # import sorting
+    "UP",   # pyupgrade — modern syntax for the target Python
+    "B",    # bugbear — likely bugs
+    "DTZ",  # naive datetimes (this system is built on valid-time; tz matters)
+    "S",    # bandit — security
+    "BLE",  # blind except
+    "RUF",  # ruff-specific
+]
+
+# Rules that fire on real problems we have scheduled, rather than on style.
+# Each one names the unit in docs/PLAN.md that removes the ignore. Do not add
+# to this list without a unit to go with it.
+ignore = [
+    # U4 "Real infrastructure, no silent fallback" removes these three. Every
+    # adapter currently catches connection errors and falls back to an
+    # in-memory dict, which is exactly what BLE001/S110/S112 detect. They stay
+    # ignored only until that unit lands.
+    "BLE001",  # blind except
+    "S110",    # try/except/pass
+    "S112",    # try/except/continue
+    # U7 "Temporal graph for real" replaces every naive datetime.utcnow() with
+    # a timezone-aware datetime.now(timezone.utc).
+    "DTZ003",
+    # Long lines inside the spec-quoting docstrings are intentional.
+    "E501",
+    # Structural, and permanent. §7.1 of the requirements prints the folder
+    # names with hyphens (`policy-engine`, `graph-schema`), and a hyphen cannot
+    # appear in a Python dotted import. Every service therefore has to push
+    # those directories onto sys.path before it can import from them, which
+    # necessarily puts statements above the imports.
+    "E402",
+]
+
+[tool.ruff.lint.per-file-ignores]
+# Tests may assert on hardcoded pilot tokens and use assert freely.
+"tests/**" = ["S101", "S105", "S106"]
+# The pilot's static service-token registry is documented as a limitation in
+# the README and replaced per decision D4 in docs/PLAN.md.
+"services/*/auth.py" = ["S105", "S106"]
+# _TOKEN_BUCKET_LUA is a Lua script for Redis, not a credential. The name
+# matches the "token" heuristic. A trailing `# noqa` is impossible here because
+# the assignment opens a triple-quoted string.
+"services/memory-mcp-server/rate_limiter.py" = ["S105"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["packages"]
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Mypy — type checking
+# ─────────────────────────────────────────────────────────────────────────────
+# The shared contracts are checked strictly: every service depends on them, so a
+# type error there is a type error everywhere. Services are checked loosely for
+# now — they import through sys.path from hyphenated directories, which mypy
+# cannot follow. U2 ("contract freeze") tightens this.
+[tool.mypy]
+python_version = "3.14"
+files = ["packages/contracts"]
+ignore_missing_imports = true
+warn_unused_configs = true
+warn_redundant_casts = true
+warn_unused_ignores = true
+disallow_untyped_defs = true
+no_implicit_optional = true

@@ -1,0 +1,35 @@
+# Everything needed to lint, type-check and run the test suite.
+#
+# This is the union of the six services' runtime dependencies plus the dev
+# tools, minus the two heavy ones. Each service keeps its own
+# requirements.txt — that is what its container installs. This file exists so
+# that one `pip install -r requirements-dev.txt` gives you a working checkout.
+#
+#   pip install -r requirements-dev.txt
+#
+# Deliberately excluded:
+#   sentence-transformers / torch  ~2 GB, and the test suite runs with
+#                                  EMBEDDING_BACKEND=local_hash. Installed
+#                                  separately in U8, when embeddings become real.
+#   qdrant-client                  we use Neo4j's native vector index instead
+#                                  (decision D5 in docs/PLAN.md).
+
+# ── Web framework, shared by all six services ────────────────────────────────
+fastapi>=0.110.0
+uvicorn[standard]>=0.29.0
+pydantic>=2.6.0
+httpx>=0.27.0
+
+# ── Datastores ───────────────────────────────────────────────────────────────
+neo4j>=5.19.0
+psycopg[binary]>=3.1.0
+redis>=5.0.0
+kafka-python-ng>=2.2.0
+
+# ── Tool interface ───────────────────────────────────────────────────────────
+mcp>=1.0.0
+
+# ── Dev tooling ──────────────────────────────────────────────────────────────
+pytest>=8.0.0
+ruff>=0.16.0
+mypy>=1.11.0
