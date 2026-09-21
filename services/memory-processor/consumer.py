@@ -28,6 +28,9 @@ log = logging.getLogger("memory-processor.consumer")
 KAFKA_BOOTSTRAP_SERVERS = os.getenv("KAFKA_BOOTSTRAP_SERVERS", "localhost:9092")
 KAFKA_TOPIC = os.getenv("KAFKA_INTERACTION_EVENTS_TOPIC", "interaction-events")
 CONSUMER_GROUP = os.getenv("KAFKA_CONSUMER_GROUP", "memory-processor")
+DLQ_TOPIC = os.getenv("KAFKA_DLQ_TOPIC", "interaction-events-dlq")
+
+_STOP = threading.Event()
 
 _policy_engine = PolicyEngine()
 
@@ -74,36 +77,105 @@ def process_event(event: InteractionEvent, store) -> list[str]:
     return written
 
 
-def _consume_loop(store):
-    from kafka import KafkaConsumer
+class ConsumerUnavailable(RuntimeError):
+    """The queue consumer could not be started, or it stopped unexpectedly."""
 
-    consumer = KafkaConsumer(
-        KAFKA_TOPIC,
-        bootstrap_servers=KAFKA_BOOTSTRAP_SERVERS,
-        group_id=CONSUMER_GROUP,
-        value_deserializer=lambda v: json.loads(v.decode("utf-8")),
-        auto_offset_reset="earliest",
-        enable_auto_commit=True,
-    )
+
+# Liveness state, read by /health. A consumer thread that started and then died
+# is the exact failure mode this unit exists to make visible, so "did it start"
+# is not enough — the health check has to know whether it is still running.
+_STATE: dict = {"started": False, "alive": False, "error": None, "processed": 0, "dead_lettered": 0}
+
+
+def consumer_status() -> dict:
+    """Health-check detail for the queue consumer."""
+    thread = _STATE.get("thread")
+    alive = bool(thread and thread.is_alive())
+    return {
+        "backend": "kafka",
+        "started": _STATE["started"],
+        "reachable": alive,
+        "processed": _STATE["processed"],
+        "dead_lettered": _STATE["dead_lettered"],
+        "error": _STATE["error"],
+    }
+
+
+def _dead_letter(producer, raw: bytes, reason: str) -> None:
+    """Park a message we cannot process.
+
+    §5.4 Observability: "Provide dead-letter handling and idempotent replay for
+    recoverable ingestion failures." This previously just wrote a log line and
+    called it dead-lettering, which loses the payload — there is nothing left to
+    replay. The message now goes to a real topic, with the reason attached.
+    """
+    import json as _json
+
+    payload = _json.dumps({
+        "reason": reason,
+        "raw": raw.decode("utf-8", errors="replace"),
+        "dead_lettered_at": datetime.now(UTC).isoformat(),
+    }).encode("utf-8")
+    producer.produce(DLQ_TOPIC, value=payload)
+    producer.flush(timeout=5)
+    _STATE["dead_lettered"] += 1
+
+
+def _consume_loop(store):
+    from confluent_kafka import Consumer, KafkaError, Producer
+
+    consumer = Consumer({
+        "bootstrap.servers": KAFKA_BOOTSTRAP_SERVERS,
+        "group.id": CONSUMER_GROUP,
+        "auto.offset.reset": "earliest",
+        # Offsets are committed only after the event has been handled, so a
+        # crash mid-processing replays the event rather than losing it. Replay
+        # is safe because candidate ids are deterministic (see classifier), so a
+        # second pass upserts the same memory instead of duplicating it.
+        "enable.auto.commit": False,
+    })
+    producer = Producer({"bootstrap.servers": KAFKA_BOOTSTRAP_SERVERS})
+    consumer.subscribe([KAFKA_TOPIC])
     log.info("consuming topic=%s brokers=%s", KAFKA_TOPIC, KAFKA_BOOTSTRAP_SERVERS)
 
-    for message in consumer:
-        try:
-            event = InteractionEvent(**message.value)
-        except Exception:
-            # Malformed payloads are dead-lettered by logging rather than
-            # crashing the consumer (§5.4 "dead-letter handling").
-            log.exception("dropping malformed event at offset %s", message.offset)
-            continue
-        try:
-            written = process_event(event, store)
-            log.info("event=%s wrote=%s", event.event_id, written)
-        except Exception:
-            log.exception("failed processing event=%s", event.event_id)
+    try:
+        while not _STOP.is_set():
+            message = consumer.poll(timeout=1.0)
+            if message is None:
+                continue
+            if message.error():
+                if message.error().code() == KafkaError._PARTITION_EOF:
+                    continue
+                log.error("consumer error: %s", message.error())
+                continue
 
+            raw = message.value()
+            try:
+                event = InteractionEvent(**json.loads(raw.decode("utf-8")))
+            except Exception as exc:
+                log.exception("malformed event at offset %s", message.offset())
+                _dead_letter(producer, raw, f"malformed: {exc}")
+                consumer.commit(message)
+                continue
 
-class ConsumerUnavailable(RuntimeError):
-    """The queue consumer could not be started."""
+            try:
+                written = process_event(event, store)
+                _STATE["processed"] += 1
+                log.info("event=%s wrote=%s", event.event_id, written)
+            except Exception as exc:
+                log.exception("failed processing event=%s", event.event_id)
+                _dead_letter(producer, raw, f"processing failed: {exc}")
+
+            # Committed either way: a processing failure has been parked on the
+            # DLQ, so replaying it from the main topic would only fail again and
+            # block every event behind it.
+            consumer.commit(message)
+    except Exception as exc:
+        _STATE["error"] = str(exc)
+        log.exception("consumer loop stopped")
+    finally:
+        _STATE["alive"] = False
+        consumer.close()
 
 
 def start_consumer(store) -> bool:
@@ -114,15 +186,24 @@ def start_consumer(store) -> bool:
     draining the queue. Events piled up on the broker, ingestion kept returning
     202, and no memory was ever written — with a green health check throughout.
 
-    It now raises, so the service fails to start and the failure is visible.
+    It now raises if it cannot start, and `consumer_status()` reports whether
+    the thread is still alive so a later crash is visible too.
     """
     try:
-        from kafka import KafkaConsumer  # noqa: F401  (import check before threading)
+        from confluent_kafka import Consumer  # noqa: F401  (import check before threading)
     except ImportError as exc:
         raise ConsumerUnavailable(
-            "the kafka client is not installed. Run `./scripts/dev.sh install`."
+            "confluent-kafka is not installed. Run `./scripts/dev.sh install`."
         ) from exc
 
+    _STOP.clear()
     thread = threading.Thread(target=_consume_loop, args=(store,), daemon=True)
     thread.start()
+    _STATE.update({"started": True, "alive": True, "error": None, "thread": thread})
     return True
+
+
+def stop_consumer() -> None:
+    """Ask the loop to finish. Used by tests, so a consumer from one test does
+    not keep running through the next."""
+    _STOP.set()

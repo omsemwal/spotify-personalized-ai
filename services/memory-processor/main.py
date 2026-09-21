@@ -18,11 +18,11 @@ sys.path.insert(0, str(_repo_root / "packages" / "policy-engine"))
 from datetime import UTC, datetime
 
 from classifier import extract_candidates
-from consumer import start_consumer
+from consumer import consumer_status, start_consumer
 from engine import PolicyContext, PolicyEngine
-from fastapi import FastAPI, HTTPException, status
+from fastapi import FastAPI, HTTPException, Response, status
 from fastapi.middleware.cors import CORSMiddleware
-from store_factory import get_graph_store
+from store_factory import get_graph_store, graph_store_status
 
 from packages.contracts import (
     ExtractionResult,
@@ -54,20 +54,40 @@ policy_engine = PolicyEngine()
 store = get_graph_store()
 
 
-_consumer_running = False
-
-
 @app.on_event("startup")
 def _start_queue_consumer():
     """Closes the async capture loop: events accepted by ingestion-api are
-    consumed here and written to the graph (§6.1 steps 1-3)."""
-    global _consumer_running
-    _consumer_running = start_consumer(store)
+    consumed here and written to the graph (§6.1 steps 1-3).
+
+    No flag is kept for the result. `consumer_status()` asks the thread whether
+    it is alive, which is the only answer that stays true — a boolean set once
+    at startup cannot notice the thread dying later.
+    """
+    start_consumer(store)
 
 
 @app.get("/health")
-def health_check():
-    return {"status": "ok", "service": "memory-processor", "queue_consumer": _consumer_running}
+def health_check(response: Response):
+    """Live dependency state, re-checked on every call.
+
+    `queue_consumer` reports whether the consumer thread is still *alive*, not
+    merely whether it was started. A thread that started and then died is
+    exactly the failure this reports — it happened for real: the previous Kafka
+    client crashed on its first coordinator poll under Python 3.14, and this
+    endpoint kept answering "ok" while nothing drained the queue.
+    """
+    dependencies = {
+        "graph": graph_store_status(),
+        "queue_consumer": consumer_status(),
+    }
+    healthy = all(d.get("reachable") for d in dependencies.values())
+    if not healthy:
+        response.status_code = 503
+    return {
+        "status": "ok" if healthy else "degraded",
+        "service": "memory-processor",
+        "dependencies": dependencies,
+    }
 
 
 @app.post("/v1/memories/extract", response_model=ExtractionResult)

@@ -614,7 +614,7 @@ needs the API contracts to exist.
 - [x] **U2** Memory taxonomy and contract freeze — branch `u02-contracts`, awaiting PR merge
 - [x] **U3** Policy engine v2 — branch `u03-policy-engine`, awaiting PR merge
 - [x] **U4** Real infrastructure, no silent fallback — branch `u04-real-infrastructure`, awaiting PR merge
-- [ ] **U5** Ingestion API for real
+- [x] **U5** Ingestion API for real — branch `u05-ingestion-real`, awaiting PR merge
 - [ ] **U6** Extraction and entity resolution
 - [ ] **U7** Temporal graph for real
 - [ ] **U8** Embeddings and vector alignment

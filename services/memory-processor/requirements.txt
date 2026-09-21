@@ -2,5 +2,5 @@ fastapi>=0.110.0
 uvicorn[standard]>=0.29.0
 pydantic>=2.6.0
 neo4j>=5.19.0
-kafka-python-ng>=2.2.0
+confluent-kafka>=2.5.0  # librdkafka binding; kafka-python-ng crashes on Python 3.14
 pyyaml>=6.0  # policy registry is YAML (packages/policy-engine)

@@ -16,7 +16,10 @@ sys.path.insert(0, str(_repo_root))
 sys.path.insert(0, str(_repo_root / "packages" / "graph-schema"))
 sys.path.insert(0, str(_repo_root / "packages" / "policy-engine"))
 
+import audit
+import rate_limiter
 import tools as tool_impl
+from store_factory import graph_store_status
 
 from packages.contracts import (
     AddExplicitPreferenceInput,
@@ -74,7 +77,7 @@ except ImportError:
     # exercises the SAME tool implementations/contracts via plain HTTP.
     import os
 
-    from fastapi import FastAPI, Request
+    from fastapi import FastAPI, Request, Response
     from fastapi.middleware.cors import CORSMiddleware
     from fastapi.responses import JSONResponse
 
@@ -103,10 +106,27 @@ except ImportError:
         return JSONResponse(status_code=429, content={"error_code": "rate_limited", "message": str(exc)})
 
     @app.get("/health")
-    def health():
-        return {"status": "ok", "service": "memory-mcp-server", "mode": "http_fallback_no_mcp_sdk",
-                "tool_audit": tool_impl.audit_backend(),
-                "rate_limiter": tool_impl.rate_limit_backend()}
+    def health(response: Response):
+        """Live dependency state, re-checked on every call.
+
+        Both dependencies here are security controls that fail closed — tools
+        refuse to run without an audit trail or a shared rate limiter — so this
+        endpoint going red is the same thing as the tools being unavailable.
+        """
+        dependencies = {
+            "tool_audit": audit.status(),
+            "rate_limiter": rate_limiter.status(),
+            "graph": graph_store_status(),
+        }
+        healthy = all(d.get("reachable") for d in dependencies.values())
+        if not healthy:
+            response.status_code = 503
+        return {
+            "status": "ok" if healthy else "degraded",
+            "service": "memory-mcp-server",
+            "mode": "http_fallback_no_mcp_sdk",
+            "dependencies": dependencies,
+        }
 
     @app.post("/tools/search_memory")
     async def _search_memory(inp: SearchMemoryInput):
