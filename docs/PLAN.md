@@ -612,7 +612,7 @@ needs the API contracts to exist.
 
 - [x] **U1** Repo hygiene and CI — branch `u01-repo-hygiene`, awaiting PR merge
 - [x] **U2** Memory taxonomy and contract freeze — branch `u02-contracts`, awaiting PR merge
-- [ ] **U3** Policy engine v2
+- [x] **U3** Policy engine v2 — branch `u03-policy-engine`, awaiting PR merge
 - [ ] **U4** Real infrastructure, no silent fallback
 - [ ] **U5** Ingestion API for real
 - [ ] **U6** Extraction and entity resolution

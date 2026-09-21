@@ -7,6 +7,13 @@ top-level modules and never goes through this package's __init__. Kept here
 for documentation and in case this directory is ever renamed without the
 hyphen, at which point dotted import (and this file) would become live.
 """
-from .engine import PolicyEngine, PolicyRegistryEntry
+from .engine import PolicyContext, PolicyEngine
+from .registry import PolicyRegistry, PolicyRegistryEntry, load_registry
 
-__all__ = ["PolicyEngine", "PolicyRegistryEntry"]
+__all__ = [
+    "PolicyContext",
+    "PolicyEngine",
+    "PolicyRegistry",
+    "PolicyRegistryEntry",
+    "load_registry",
+]

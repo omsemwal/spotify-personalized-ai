@@ -5,3 +5,4 @@ neo4j>=5.19.0
 qdrant-client>=1.9.0
 sentence-transformers>=2.6.0
 psycopg[binary]>=3.1.0
+pyyaml>=6.0  # policy registry is YAML (packages/policy-engine)

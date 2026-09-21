@@ -1,0 +1,171 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# Policy Registry
+# ─────────────────────────────────────────────────────────────────────────────
+#
+# The data catalog entry for every memory type this system is allowed to store.
+# §4, Data Governance Lead: "We also need a data catalog entry for each memory
+# type: source, lawful basis or internal policy basis, allowed purposes,
+# sensitivity, retention period, and deletion path."
+#
+# This is DATA, not code, on purpose. §7.5 requires "policy or data-governance
+# approval for new memory types, sensitive categories, and scoring-rule
+# changes". Keeping the rules in a file a non-engineer can read and review makes
+# that approval a review of this file, rather than a review of Python.
+#
+# Definitions of each type, with examples and counter-examples, live in
+# docs/architecture/memory_taxonomy.md. The human-readable mirror of this file
+# is docs/privacy-and-security/policy_registry.md. All three must agree, and a
+# test enforces that this file and the taxonomy list the same five types.
+#
+# ⚠ Values marked PLACEHOLDER are mechanisms that work but carry illustrative
+#   numbers. They need a real data-governance decision before any deployment
+#   handling non-synthetic data.
+
+version: "1.0.0"
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Memory types
+# ─────────────────────────────────────────────────────────────────────────────
+# Keep this list narrow. §4, Chief Product Officer: "Do not widen the
+# stored-memory taxonomy until the evaluation data supports it."
+memory_types:
+
+  explicit_preference:
+    description: The user directly stated a lasting taste or want, with no time bound.
+    sensitivity: normal
+    basis: explicit_user_statement
+    allowed_purposes: [continuity, personalization, correction]
+    retention_days: 365
+    requires_explicit_confirmation: false
+    minimum_confidence: 0.30
+    # Under partial consent the user has allowed us to keep what they told us
+    # outright, but not what we inferred about them.
+    allowed_under_partial_consent: true
+    # Age-related protection (§5.4): for a minor, only what they stated
+    # explicitly may be retained. Nothing inferred from behaviour.
+    allowed_for_minors: true
+    restricted_regions: []
+
+  exclusion:
+    description: The user directly stated something they do NOT want.
+    sensitivity: normal
+    basis: explicit_user_statement
+    allowed_purposes: [personalization, safety]
+    retention_days: 365
+    requires_explicit_confirmation: false
+    minimum_confidence: 0.30
+    allowed_under_partial_consent: true
+    allowed_for_minors: true
+    restricted_regions: []
+
+  correction:
+    description: The user is correcting or retracting something already stored.
+    sensitivity: normal
+    basis: explicit_user_statement
+    allowed_purposes: [continuity, correction]
+    retention_days: 365
+    requires_explicit_confirmation: false
+    # A correction is the user exercising control. It is never filtered out for
+    # being low confidence — suppressing a correction would mean continuing to
+    # use the thing they just told us was wrong.
+    minimum_confidence: 0.0
+    allowed_under_partial_consent: true
+    allowed_for_minors: true
+    restricted_regions: []
+
+  candidate_preference:
+    description: A preference only implied, or explicitly temporary. Not yet durable.
+    sensitivity: normal
+    basis: inferred_from_interaction
+    allowed_purposes: [personalization]
+    retention_days: 90
+    requires_explicit_confirmation: true
+    minimum_confidence: 0.30
+    # Inferred, so not permitted when consent is only partial.
+    allowed_under_partial_consent: false
+    allowed_for_minors: false
+    restricted_regions: []
+
+  episode:
+    description: A single interaction that happened. No preference claimed.
+    sensitivity: normal
+    basis: observed_interaction
+    allowed_purposes: [continuity, personalization]
+    retention_days: 30
+    requires_explicit_confirmation: false
+    minimum_confidence: 0.30
+    allowed_under_partial_consent: false
+    allowed_for_minors: false
+    restricted_regions: []
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Prohibited inferences
+# ─────────────────────────────────────────────────────────────────────────────
+# §4, Privacy Lead: "We should not store inferred emotional state as a durable
+# profile by default." These are refused at write time whatever type they
+# arrive as, and there is no configuration that permits them.
+blocked_inferred_categories:
+  - emotional_state
+  - mood_inference
+  - mental_health_inference
+  - medical_inference
+  - political_affiliation_inference
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Consent
+# ─────────────────────────────────────────────────────────────────────────────
+# §5.4: "Apply retention by memory type, geography, age-related policy, consent
+# state, and legal or internal governance requirements."
+consent:
+  granted:
+    description: Everything the taxonomy permits.
+  partial:
+    description: >-
+      Only what the user stated outright. Types with
+      allowed_under_partial_consent = false are refused at write time and
+      filtered at retrieval, so changing consent to partial takes effect on
+      memories that already exist.
+  denied:
+    description: No memory is written and none is retrieved.
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Subject controls
+# ─────────────────────────────────────────────────────────────────────────────
+# §5.3: "A listener removes a memory or disables eligible memory use" ->
+# "Revokes retrieval eligibility".
+subject_controls:
+  paused:
+    blocks_retrieval: true
+    # Pause stops memory being USED, not memory being captured. That is what
+    # §5.3 specifies, and it is what makes pause reversible: unpausing restores
+    # a continuous history rather than a gap. Opt-out is the control that stops
+    # capture.
+    blocks_write: false
+  opted_out:
+    blocks_retrieval: true
+    blocks_write: true
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Regional rules
+# ─────────────────────────────────────────────────────────────────────────────
+# PLACEHOLDER VALUES. The mechanism is real and tested; the numbers are not a
+# legal position. A region may cap retention below the per-type value, and the
+# shorter of the two always wins.
+regions:
+  GLOBAL:
+    max_retention_days: null   # no additional cap
+  EU:
+    max_retention_days: 180    # PLACEHOLDER
+  US:
+    max_retention_days: null
+  IN:
+    max_retention_days: null
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Retrieval thresholds
+# ─────────────────────────────────────────────────────────────────────────────
+retrieval:
+  # §5.4: exclude memories that are "expired, contradicted, disallowed,
+  # low-confidence, or outside the active surface policy". Only a memory whose
+  # status is exactly "active" may be used.
+  usable_status: active

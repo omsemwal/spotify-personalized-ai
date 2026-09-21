@@ -26,6 +26,9 @@ psycopg[binary]>=3.1.0
 redis>=5.0.0
 kafka-python-ng>=2.2.0
 
+# ── Policy registry (packages/policy-engine/policy_registry.yaml) ────────────
+pyyaml>=6.0
+
 # ── Tool interface ───────────────────────────────────────────────────────────
 mcp>=1.0.0
 
