@@ -5,6 +5,7 @@ field or executes/interprets it. Spec ref: §5.4 'Treat stored free text as
 untrusted data', §7.7 Security 'prompt injection through stored content'."""
 import sys
 from pathlib import Path
+
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "services" / "context-composer"))
 

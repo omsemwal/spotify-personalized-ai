@@ -2,6 +2,7 @@
 boundary (§5.5 Security, §7.7 'Cross-subject isolation... tests pass' release gate)."""
 import sys
 from pathlib import Path
+
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "packages" / "graph-schema"))
 
 from memory_store import InMemoryGraphStore

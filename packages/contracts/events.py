@@ -4,7 +4,8 @@ Owner: shared (all services import this — never redefine locally).
 Spec ref: §5.4 "Interaction Capture and Input Handling", §7.1 packages/contracts.
 """
 from datetime import datetime
-from typing import Any, Dict, Literal
+from typing import Any, Literal
+
 from pydantic import BaseModel, Field
 
 SCHEMA_VERSION = "1.0.0"
@@ -25,7 +26,7 @@ class InteractionEvent(BaseModel):
     subject_id: str = Field(..., description="Authenticated subject (user) scope")
     surface: str = Field(..., description="Originating AI surface, e.g. 'music_chat', 'playlist_ui', 'podcast_chat'")
     event_type: EventType = Field(..., description="Interaction classification")
-    payload: Dict[str, Any] = Field(default_factory=dict, description="Event-type-specific structured payload")
+    payload: dict[str, Any] = Field(default_factory=dict, description="Event-type-specific structured payload")
     locale: str = Field(default="en-US", description="Locale context of the interaction")
     timestamp: datetime = Field(..., description="Client-reported time of occurrence (UTC)")
     consent_state: ConsentState = Field(..., description="Consent status at time of capture")

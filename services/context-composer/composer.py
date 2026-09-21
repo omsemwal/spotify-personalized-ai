@@ -6,9 +6,10 @@ contradicted, disallowed, low-confidence, or outside the active surface
 policy... Treat stored free text as untrusted data and isolate it from system
 instructions... Provide a deterministic no-memory fallback."
 """
-from typing import Any, Dict, List
+from typing import Any
 
 from packages.contracts import ContextItem, ContextPackage
+
 
 # Rough token estimate: 1 token ~= 4 chars. Good enough for a budget gate in
 # the pilot; swap for a real tokenizer count in production.
@@ -17,8 +18,8 @@ def _estimate_tokens(text: str) -> int:
 
 
 def compose_context(subject_id: str, surface: str, intent: str, trace_id: str,
-                     search_results: List[Dict[str, Any]], token_budget: int = 400) -> ContextPackage:
-    items: List[ContextItem] = []
+                     search_results: list[dict[str, Any]], token_budget: int = 400) -> ContextPackage:
+    items: list[ContextItem] = []
     used_tokens = 0
 
     for r in search_results:

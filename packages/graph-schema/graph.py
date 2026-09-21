@@ -1,7 +1,8 @@
-from neo4j import GraphDatabase
 import os
 from datetime import datetime
-from typing import Optional, List, Dict, Any
+from typing import Any
+
+from neo4j import GraphDatabase
 
 NEO4J_URI = os.getenv("NEO4J_URI", "bolt://localhost:7687")
 NEO4J_USER = os.getenv("NEO4J_USER", "neo4j")
@@ -14,7 +15,7 @@ class TemporalGraphStore:
     def close(self):
         self.driver.close()
 
-    def write_memory(self, memory_dict: Dict[str, Any]) -> str:
+    def write_memory(self, memory_dict: dict[str, Any]) -> str:
         """Upsert memory node and link to User and Entity nodes in Neo4j."""
         query = """
         MERGE (u:User {id: $subject_id})
@@ -52,7 +53,7 @@ class TemporalGraphStore:
             record = result.single()
             return record["memory_id"] if record else memory_dict["memory_id"]
 
-    def correct_memory(self, old_memory_id: str, new_memory_dict: Dict[str, Any]) -> str:
+    def correct_memory(self, old_memory_id: str, new_memory_dict: dict[str, Any]) -> str:
         """Close valid_to on old memory and link new memory with SUPERSEDES relationship."""
         # 1. Write the new memory first
         new_memory_id = self.write_memory(new_memory_dict)
@@ -75,7 +76,7 @@ class TemporalGraphStore:
             )
         return new_memory_id
 
-    def set_embedding(self, memory_id: str, vector: List[float]) -> None:
+    def set_embedding(self, memory_id: str, vector: list[float]) -> None:
         """Store the vector on the same node as the fact, under the same
         memory_id (§5.4 "store vectors under the same stable memory identifier
         used in the graph"). Deleting the node deletes the vector with it, so
@@ -87,7 +88,7 @@ class TemporalGraphStore:
         with self.driver.session() as session:
             session.run(query, memory_id=memory_id, vector=vector)
 
-    def vector_search(self, subject_id: str, query_vector: List[float], top_k: int = 20):
+    def vector_search(self, subject_id: str, query_vector: list[float], top_k: int = 20):
         """Semantic candidates from the Neo4j vector index (§6.2 "Neo4j vector
         indexes"), filtered to one subject so the index can never return another
         subject's memories."""
@@ -122,7 +123,7 @@ class TemporalGraphStore:
         with self.driver.session() as session:
             session.run(query, memory_id=memory_id)
 
-    def get_memory(self, memory_id: str) -> Optional[Dict[str, Any]]:
+    def get_memory(self, memory_id: str) -> dict[str, Any] | None:
         """Single memory lookup by stable ID, used by correction/expiry paths."""
         query = """
         MATCH (u:User)-[:HAS_MEMORY]->(m:Memory {memory_id: $memory_id})
@@ -137,7 +138,7 @@ class TemporalGraphStore:
             record = session.run(query, memory_id=memory_id).single()
             return record.data() if record else None
 
-    def get_all_for_subject(self, subject_id: str) -> List[Dict[str, Any]]:
+    def get_all_for_subject(self, subject_id: str) -> list[dict[str, Any]]:
         """Every memory belonging to one subject, scoped by subject_id so a
         query can never traverse into another subject's memories (§5.4 subject
         isolation at the query boundary)."""
@@ -154,7 +155,7 @@ class TemporalGraphStore:
             result = session.run(query, subject_id=subject_id)
             return [record.data() for record in result]
 
-    def traverse_related(self, subject_id: str, intent_entities: List[str]) -> List[Dict[str, Any]]:
+    def traverse_related(self, subject_id: str, intent_entities: list[str]) -> list[dict[str, Any]]:
         """Retrieve active memories linked to user and matching entities."""
         query = """
         MATCH (u:User {id: $subject_id})-[:HAS_MEMORY]->(m:Memory)-[:ABOUT]->(e:Entity)

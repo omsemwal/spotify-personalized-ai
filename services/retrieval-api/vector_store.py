@@ -5,17 +5,16 @@ deletion/update stay deterministic and aligned across stores (§5.4
 "Embeddings and Retrieval": "store vectors under the same stable memory
 identifier used in the graph").
 """
-from typing import Dict, List, Tuple
 
 from embeddings import cosine_similarity
 
 
 class InMemoryVectorStore:
     def __init__(self):
-        self._vectors: Dict[str, List[float]] = {}
+        self._vectors: dict[str, list[float]] = {}
         self._deleted: set = set()
 
-    def upsert(self, memory_id: str, vector: List[float]) -> None:
+    def upsert(self, memory_id: str, vector: list[float]) -> None:
         self._vectors[memory_id] = vector
         self._deleted.discard(memory_id)
 
@@ -23,7 +22,7 @@ class InMemoryVectorStore:
         self._vectors.pop(memory_id, None)
         self._deleted.add(memory_id)
 
-    def search(self, query_vector: List[float], candidate_ids: List[str], top_k: int = 10) -> List[Tuple[str, float]]:
+    def search(self, query_vector: list[float], candidate_ids: list[str], top_k: int = 10) -> list[tuple[str, float]]:
         scored = []
         for mid in candidate_ids:
             vec = self._vectors.get(mid)

@@ -8,16 +8,16 @@ TemporalGraphStore in production via dependency injection; see each service's
 `get_graph_store()` factory.
 """
 from datetime import datetime
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 
 class InMemoryGraphStore:
     def __init__(self):
-        self._memories: Dict[str, Dict[str, Any]] = {}
-        self._user_memories: Dict[str, List[str]] = {}
-        self._entity_memories: Dict[str, List[str]] = {}
+        self._memories: dict[str, dict[str, Any]] = {}
+        self._user_memories: dict[str, list[str]] = {}
+        self._entity_memories: dict[str, list[str]] = {}
 
-    def write_memory(self, memory_dict: Dict[str, Any]) -> str:
+    def write_memory(self, memory_dict: dict[str, Any]) -> str:
         mid = memory_dict["memory_id"]
         self._memories[mid] = dict(memory_dict)
         self._user_memories.setdefault(memory_dict["subject_id"], [])
@@ -29,7 +29,7 @@ class InMemoryGraphStore:
                 self._entity_memories[entity].append(mid)
         return mid
 
-    def correct_memory(self, old_memory_id: str, new_memory_dict: Dict[str, Any]) -> str:
+    def correct_memory(self, old_memory_id: str, new_memory_dict: dict[str, Any]) -> str:
         new_id = self.write_memory(new_memory_dict)
         if old_memory_id in self._memories:
             self._memories[old_memory_id]["valid_to"] = datetime.utcnow().isoformat()
@@ -55,7 +55,7 @@ class InMemoryGraphStore:
             if memory_id in ent_list:
                 ent_list.remove(memory_id)
 
-    def traverse_related(self, subject_id: str, intent_entities: List[str]) -> List[Dict[str, Any]]:
+    def traverse_related(self, subject_id: str, intent_entities: list[str]) -> list[dict[str, Any]]:
         """Subject-scoped traversal — never crosses subject_id boundaries (§5.4 subject isolation)."""
         candidate_ids = set(self._user_memories.get(subject_id, []))
         if intent_entities:
@@ -70,17 +70,18 @@ class InMemoryGraphStore:
                 results.append(mem)
         return results
 
-    def set_embedding(self, memory_id: str, vector: List[float]) -> None:
+    def set_embedding(self, memory_id: str, vector: list[float]) -> None:
         """Kept in parity with TemporalGraphStore so retrieval behaves the same
         in local mode."""
         if memory_id in self._memories:
             self._memories[memory_id]["embedding"] = vector
 
-    def vector_search(self, subject_id: str, query_vector: List[float], top_k: int = 20):
+    def vector_search(self, subject_id: str, query_vector: list[float], top_k: int = 20):
         from math import sqrt
         def cos(a, b):
-            if not a or not b: return 0.0
-            dot = sum(x*y for x, y in zip(a, b))
+            if not a or not b:
+                return 0.0
+            dot = sum(x*y for x, y in zip(a, b, strict=False))
             na = sqrt(sum(x*x for x in a)) or 1.0
             nb = sqrt(sum(y*y for y in b)) or 1.0
             return dot/(na*nb)
@@ -92,9 +93,9 @@ class InMemoryGraphStore:
         out.sort(key=lambda x: x[1], reverse=True)
         return out[:top_k]
 
-    def get_memory(self, memory_id: str) -> Optional[Dict[str, Any]]:
+    def get_memory(self, memory_id: str) -> dict[str, Any] | None:
         """Single memory lookup by stable ID, used by correction/expiry paths."""
         return self._memories.get(memory_id)
 
-    def get_all_for_subject(self, subject_id: str) -> List[Dict[str, Any]]:
+    def get_all_for_subject(self, subject_id: str) -> list[dict[str, Any]]:
         return [self._memories[m] for m in self._user_memories.get(subject_id, []) if m in self._memories]

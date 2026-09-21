@@ -7,11 +7,11 @@ list when Postgres is unreachable so recording feedback never fails the caller;
 that fallback is not durable — get_backend() says which one is live.
 """
 import os
-from typing import Any, Dict, List
+from typing import Any
 
 _CONN = None
 _BACKEND = "memory"
-_FALLBACK: List[dict] = []
+_FALLBACK: list[dict] = []
 
 
 def _dsn() -> str:
@@ -44,7 +44,7 @@ def get_backend() -> str:
     return _BACKEND
 
 
-def save_feedback(fb: Dict[str, Any]) -> None:
+def save_feedback(fb: dict[str, Any]) -> None:
     """Records what the user or reviewer said. Never records model output as if
     it were feedback (§5.4 "without self-validating model output")."""
     c = _conn()

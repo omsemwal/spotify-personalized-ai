@@ -4,6 +4,7 @@ independently testable'). This test pins the CURRENT expected version — bump
 it deliberately, in the same PR that bumps packages/contracts/events.py."""
 import sys
 from pathlib import Path
+
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from packages.contracts import SCHEMA_VERSION

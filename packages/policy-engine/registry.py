@@ -9,14 +9,13 @@ policy or data-governance approval for new memory types, sensitive categories,
 and scoring-rule changes").
 """
 from dataclasses import dataclass, field
-from typing import List
 
 
 @dataclass(frozen=True)
 class PolicyRegistryEntry:
     memory_type: str
     sensitivity: str            # "normal" | "sensitive" | "blocked"
-    allowed_purposes: List[str] = field(default_factory=list)
+    allowed_purposes: list[str] = field(default_factory=list)
     retention_days: int = 180
     requires_explicit_confirmation: bool = False
 

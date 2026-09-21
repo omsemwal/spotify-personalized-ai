@@ -7,23 +7,23 @@ write, candidate retrieval, reranking, policy filtering, and context injection."
 import time
 import uuid
 from contextlib import contextmanager
-from typing import Any, Dict, List
+from typing import Any
 
 from .redaction import redact_payload
 
 
 class TraceRecorder:
-    def __init__(self, subject_id: str, surface: str, trace_id: str = None):
+    def __init__(self, subject_id: str, surface: str, trace_id: str | None = None):
         self.trace_id = trace_id or str(uuid.uuid4())
         self.subject_id = subject_id
         self.surface = surface
-        self.stages: List[Dict[str, Any]] = []
-        self.memory_ids_used: List[str] = []
+        self.stages: list[dict[str, Any]] = []
+        self.memory_ids_used: list[str] = []
         self.fallback_used = False
         self._start = time.monotonic()
 
     @contextmanager
-    def stage(self, name: str, detail: Dict[str, Any] = None):
+    def stage(self, name: str, detail: dict[str, Any] | None = None):
         t0 = time.monotonic()
         outcome = "ok"
         try:
@@ -46,7 +46,7 @@ class TraceRecorder:
         if memory_id not in self.memory_ids_used:
             self.memory_ids_used.append(memory_id)
 
-    def to_trace_dict(self) -> Dict[str, Any]:
+    def to_trace_dict(self) -> dict[str, Any]:
         return {
             "trace_id": self.trace_id,
             "subject_id": self.subject_id,

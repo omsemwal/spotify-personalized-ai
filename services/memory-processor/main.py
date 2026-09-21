@@ -9,25 +9,28 @@ Spec ref: §5.4 "Memory Extraction and Entity Resolution", §6.1 steps 2-3.
 import os
 import sys
 from pathlib import Path
+
 _repo_root = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(_repo_root))
 sys.path.insert(0, str(_repo_root / "packages" / "graph-schema"))
 sys.path.insert(0, str(_repo_root / "packages" / "policy-engine"))
 
-from datetime import datetime, timezone
-
-from fastapi import FastAPI, HTTPException, status
-from fastapi.middleware.cors import CORSMiddleware
-
-from packages.contracts import (
-    ExtractionResult, InteractionEvent, Memory,
-    MemoryCorrectionRequest, MemoryCreateRequest,
-)
-from engine import PolicyContext, PolicyEngine
+from datetime import UTC, datetime
 
 from classifier import extract_candidates
 from consumer import start_consumer
+from engine import PolicyContext, PolicyEngine
+from fastapi import FastAPI, HTTPException, status
+from fastapi.middleware.cors import CORSMiddleware
 from store_factory import get_graph_store
+
+from packages.contracts import (
+    ExtractionResult,
+    InteractionEvent,
+    Memory,
+    MemoryCorrectionRequest,
+    MemoryCreateRequest,
+)
 
 app = FastAPI(
     title="Spotify Memory System — Memory Processor",
@@ -89,7 +92,7 @@ def create_memory(req: MemoryCreateRequest):
             "error_code": "policy_denial", "rejection_codes": codes
         })
 
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     import hashlib
     memory_id = "mem_" + hashlib.sha256(f"{req.subject_id}|{req.fact_text}|{req.source_event_id}".encode()).hexdigest()[:16]
 
@@ -116,7 +119,7 @@ def correct_memory(memory_id: str, req: MemoryCorrectionRequest):
     if req.expected_version and req.expected_version != current_version:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail={"error_code": "conflict", "message": "stale version"})
 
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     if req.action == "expire":
         store.expire_memory(memory_id)
         return {"memory_id": memory_id, "status": "expired"}

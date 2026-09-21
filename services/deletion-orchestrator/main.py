@@ -11,19 +11,18 @@ all stores."
 import os
 import sys
 from pathlib import Path
+
 _repo_root = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(_repo_root))
 sys.path.insert(0, str(_repo_root / "packages" / "graph-schema"))
 sys.path.insert(0, str(_repo_root / "packages" / "policy-engine"))
 
 import uuid
-from datetime import datetime, timezone
-from typing import Dict
-
-from fastapi import FastAPI, HTTPException, status
-from fastapi.middleware.cors import CORSMiddleware
+from datetime import UTC, datetime
 
 import operational_store
+from fastapi import FastAPI, HTTPException, status
+from fastapi.middleware.cors import CORSMiddleware
 
 app = FastAPI(
     title="Spotify Memory System — Deletion Orchestrator",
@@ -45,7 +44,7 @@ app.add_middleware(
 
 # Jobs live in the PostgreSQL operational store (§6.2). This dict only holds the
 # job while its stores are still being worked through, before it is persisted.
-_JOBS: Dict[str, dict] = {}
+_JOBS: dict[str, dict] = {}
 
 STORES = ["graph", "vector", "cache", "operational_store", "backup_policy"]
 
@@ -74,7 +73,7 @@ def _run_deletion(job_id: str, memory_id: str):
     job["stores"]["backup_policy"] = "scheduled"       # backups erase on their own retention cycle — status is tracked, not instant
 
     job["status"] = "completed" if all(v in ("completed", "scheduled") for v in job["stores"].values()) else "partial_failure"
-    job["completed_at"] = datetime.now(timezone.utc).isoformat()
+    job["completed_at"] = datetime.now(UTC).isoformat()
     operational_store.save_job(job)   # durable record of the erasure (§6.2)
 
 
@@ -90,7 +89,7 @@ def delete_memory(memory_id: str):
     _JOBS[job_id] = {
         "job_id": job_id, "memory_id": memory_id, "status": "in_progress",
         "stores": {s: "pending" for s in STORES},
-        "started_at": datetime.now(timezone.utc).isoformat(), "completed_at": None,
+        "started_at": datetime.now(UTC).isoformat(), "completed_at": None,
     }
     _run_deletion(job_id, memory_id)  # synchronous for pilot simplicity; production: background worker
     return {"job_id": job_id, "status": _JOBS[job_id]["status"]}

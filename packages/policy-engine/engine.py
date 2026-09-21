@@ -4,13 +4,12 @@ memory must pass through before it can be written or injected into context.
 Spec ref: §5.4 "User Control, Privacy, and Safety", §6.1 step 6 "Rerank and govern."
 """
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
-from typing import List
+from datetime import UTC, datetime, timedelta
 
 try:
     # Works when policy-engine is imported as a real package (e.g. from a
     # future rename without the hyphen, or via importlib with a package spec).
-    from .registry import REGISTRY, BLOCKED_INFERRED_CATEGORIES, PolicyRegistryEntry
+    from .registry import BLOCKED_INFERRED_CATEGORIES, REGISTRY, PolicyRegistryEntry
 except ImportError:
     # Actual path taken today: each service inserts packages/policy-engine
     # onto sys.path at startup (the hyphen in the directory name makes
@@ -18,19 +17,19 @@ except ImportError:
     # imported as a bare top-level module with no parent package — a relative
     # import has nothing to resolve against. Import registry.py the same way,
     # as a sibling top-level module, instead.
-    from registry import REGISTRY, BLOCKED_INFERRED_CATEGORIES, PolicyRegistryEntry
+    from registry import BLOCKED_INFERRED_CATEGORIES, REGISTRY, PolicyRegistryEntry
 
 
 def _as_utc(dt: datetime) -> datetime:
     """Memories written by different services carry either naive or tz-aware
     timestamps; retention math must not depend on which one arrived."""
-    return dt.replace(tzinfo=timezone.utc) if dt.tzinfo is None else dt
+    return dt.replace(tzinfo=UTC) if dt.tzinfo is None else dt
 
 
 @dataclass
 class PolicyContext:
     consent_state: str          # "granted" | "denied" | "partial"
-    surface_policy: List[str]   # purposes this surface is allowed to use, e.g. ["personalization"]
+    surface_policy: list[str]   # purposes this surface is allowed to use, e.g. ["personalization"]
     inferred_category: str = ""  # set only for candidate_preference from inference
 
 
@@ -55,12 +54,12 @@ class PolicyEngine:
 
         return (len(codes) == 0, codes)
 
-    def evaluate_retrieval(self, memory: dict, ctx: PolicyContext, now: datetime = None) -> tuple[bool, list[str]]:
+    def evaluate_retrieval(self, memory: dict, ctx: PolicyContext, now: datetime | None = None) -> tuple[bool, list[str]]:
         """Decide whether an already-stored memory may be included in a context
         package right now. Called at every retrieval, not just at write time —
         a memory can become ineligible later (expired, contradicted, surface changed).
         """
-        now = _as_utc(now or datetime.now(timezone.utc))
+        now = _as_utc(now or datetime.now(UTC))
         codes: list[str] = []
 
         if memory.get("status") != "active":
@@ -86,7 +85,7 @@ class PolicyEngine:
             codes.append("low_confidence")
 
         surface = memory.get("surface")
-        if surface and surface not in (ctx.surface_policy + [None]):
+        if surface and surface not in [*ctx.surface_policy, None]:
             # surface-restricted memory being requested from a different surface
             pass  # surface_policy already carries purpose eligibility above; explicit surface match is stricter and optional
 

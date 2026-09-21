@@ -13,12 +13,12 @@ import json
 import logging
 import os
 import threading
-from datetime import datetime, timezone
-
-from packages.contracts import InteractionEvent, Memory
-from engine import PolicyContext, PolicyEngine
+from datetime import UTC, datetime
 
 from classifier import extract_candidates
+from engine import PolicyContext, PolicyEngine
+
+from packages.contracts import InteractionEvent, Memory
 
 log = logging.getLogger("memory-processor.consumer")
 
@@ -50,7 +50,7 @@ def process_event(event: InteractionEvent, store) -> list[str]:
                      event.event_id, candidate.memory_type, codes)
             continue
 
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         memory = Memory(
             memory_id=candidate.memory_id,
             subject_id=event.subject_id,

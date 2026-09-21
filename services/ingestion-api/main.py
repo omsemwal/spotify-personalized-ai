@@ -9,6 +9,7 @@ services/memory-processor. Spec ref: §5.4 Interaction Capture, §6.1 step 1.
 import os
 import sys
 from pathlib import Path
+
 _repo_root = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(_repo_root))
 sys.path.insert(0, str(_repo_root / "packages" / "graph-schema"))
@@ -16,15 +17,14 @@ sys.path.insert(0, str(_repo_root / "packages" / "policy-engine"))
 
 from datetime import datetime
 
+from auth import verify_service_token
 from fastapi import Depends, FastAPI, HTTPException, status
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import ValidationError
-
-from packages.contracts import InteractionEvent, SCHEMA_VERSION
-
-from auth import verify_service_token
 from idempotency_adapter import IdempotencyAdapter
+from pydantic import ValidationError
 from queue_adapter import QueueAdapter
+
+from packages.contracts import SCHEMA_VERSION, InteractionEvent
 
 app = FastAPI(
     title="Spotify Memory System — Ingestion API",
@@ -62,7 +62,7 @@ async def ingest_event(raw_event: dict, service_name: str = Depends(verify_servi
     except ValidationError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail={
             "error_code": "malformed", "message": str(e)
-        })
+        }) from e
 
     # 2. Schema-version compatibility check.
     if event.schema_version != SCHEMA_VERSION:

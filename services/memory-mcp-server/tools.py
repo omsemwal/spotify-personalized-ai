@@ -7,17 +7,21 @@ import os
 import uuid
 
 import httpx
+from audit import record
+from rate_limiter import allow
 
 from packages.contracts import (
-    AddExplicitPreferenceInput, AddExplicitPreferenceOutput,
-    CorrectMemoryInput, CorrectMemoryOutput,
-    DeleteMemoryInput, DeleteMemoryOutput,
-    ExplainMemoryUseInput, ExplainMemoryUseOutput,
-    SearchMemoryInput, SearchMemoryOutput,
+    AddExplicitPreferenceInput,
+    AddExplicitPreferenceOutput,
+    CorrectMemoryInput,
+    CorrectMemoryOutput,
+    DeleteMemoryInput,
+    DeleteMemoryOutput,
+    ExplainMemoryUseInput,
+    ExplainMemoryUseOutput,
+    SearchMemoryInput,
+    SearchMemoryOutput,
 )
-
-from audit import record, get_backend as audit_backend
-from rate_limiter import allow, get_backend as rate_limit_backend
 
 RETRIEVAL_API_URL = "http://localhost:8002"
 MEMORY_PROCESSOR_URL = "http://localhost:8006"

@@ -3,7 +3,7 @@ Typed I/O for every MCP tool exposed by services/memory-mcp-server (§5.4 "MCP a
 No tool in this system may accept or return a bare dict — every call is validated
 against one of these models. The model never receives a generic graph-query tool.
 """
-from typing import List, Optional
+
 from pydantic import BaseModel, Field
 
 from .memory import MemoryType
@@ -26,18 +26,18 @@ class SearchMemoryResult(BaseModel):
 
 
 class SearchMemoryOutput(BaseModel):
-    results: List[SearchMemoryResult]
+    results: list[SearchMemoryResult]
     fallback_used: bool = False
     # Callers need this to fetch the retrieval/policy trace via GET /v1/traces/{id}
     # (§5.5 Observability: "each response must link to a trace").
-    trace_id: Optional[str] = None
+    trace_id: str | None = None
 
 
 class AddExplicitPreferenceInput(BaseModel):
     subject_id: str
     fact_text: str
     surface: str
-    entities: List[str] = Field(default_factory=list)
+    entities: list[str] = Field(default_factory=list)
 
 
 class AddExplicitPreferenceOutput(BaseModel):
@@ -59,7 +59,7 @@ class CorrectMemoryOutput(BaseModel):
 
 class DeleteMemoryInput(BaseModel):
     memory_id: str
-    reason: Optional[str] = None
+    reason: str | None = None
 
 
 class DeleteMemoryOutput(BaseModel):
@@ -69,7 +69,7 @@ class DeleteMemoryOutput(BaseModel):
 
 class ExplainMemoryUseInput(BaseModel):
     memory_id: str
-    trace_id: Optional[str] = None
+    trace_id: str | None = None
 
 
 class ExplainMemoryUseOutput(BaseModel):
@@ -79,4 +79,4 @@ class ExplainMemoryUseOutput(BaseModel):
     confidence: float
     policy_class: str
     recorded_at: str
-    used_in_traces: List[str] = Field(default_factory=list)
+    used_in_traces: list[str] = Field(default_factory=list)

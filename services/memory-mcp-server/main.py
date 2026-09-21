@@ -10,17 +10,21 @@ authorization/audit logic are exercised identically either way.
 """
 import sys
 from pathlib import Path
+
 _repo_root = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(_repo_root))
 sys.path.insert(0, str(_repo_root / "packages" / "graph-schema"))
 sys.path.insert(0, str(_repo_root / "packages" / "policy-engine"))
 
-from packages.contracts import (
-    AddExplicitPreferenceInput, CorrectMemoryInput, DeleteMemoryInput,
-    ExplainMemoryUseInput, SearchMemoryInput,
-)
-
 import tools as tool_impl
+
+from packages.contracts import (
+    AddExplicitPreferenceInput,
+    CorrectMemoryInput,
+    DeleteMemoryInput,
+    ExplainMemoryUseInput,
+    SearchMemoryInput,
+)
 
 try:
     from mcp.server.fastmcp import FastMCP
@@ -35,10 +39,11 @@ try:
         ))).model_dump()
 
     @mcp.tool()
-    async def add_explicit_preference(subject_id: str, fact_text: str, surface: str, entities: list[str] = []):
+    async def add_explicit_preference(subject_id: str, fact_text: str, surface: str,
+                                      entities: list[str] | None = None):
         """Create an explicit, user-stated preference memory."""
         return (await tool_impl.add_explicit_preference(AddExplicitPreferenceInput(
-            subject_id=subject_id, fact_text=fact_text, surface=surface, entities=entities
+            subject_id=subject_id, fact_text=fact_text, surface=surface, entities=entities or []
         ))).model_dump()
 
     @mcp.tool()
@@ -49,14 +54,14 @@ try:
         ), subject_id=subject_id)).model_dump()
 
     @mcp.tool()
-    async def delete_memory(subject_id: str, memory_id: str, reason: str = None):
+    async def delete_memory(subject_id: str, memory_id: str, reason: str | None = None):
         """Start a cross-store deletion job for one memory."""
         return (await tool_impl.delete_memory(DeleteMemoryInput(
             memory_id=memory_id, reason=reason
         ), subject_id=subject_id)).model_dump()
 
     @mcp.tool()
-    async def explain_memory_use(subject_id: str, memory_id: str, trace_id: str = None):
+    async def explain_memory_use(subject_id: str, memory_id: str, trace_id: str | None = None):
         """Return provenance for why a memory was used in a response."""
         return (await tool_impl.explain_memory_use(ExplainMemoryUseInput(
             memory_id=memory_id, trace_id=trace_id

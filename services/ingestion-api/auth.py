@@ -9,6 +9,7 @@ against a service registry and extracts the subject claim — swap
 `verify_service_token` for the real IdP call when integrating.
 """
 import os
+
 from fastapi import Header, HTTPException, status
 
 # Pilot-only static registry: {token: service_name}. Replace with real IdP integration.

@@ -3,7 +3,7 @@ Offline scoring for golden cases (§5.4 "Quality Engineering Lead" requirement:
 "precision at the top of the retrieved set, not just retrieval recall").
 """
 from dataclasses import dataclass, field
-from typing import Any, Dict, List
+from typing import Any
 
 
 @dataclass
@@ -13,10 +13,10 @@ class GoldenCaseResult:
     contradiction_detected: bool
     prohibited_memory_leaked: bool
     context_budget_respected: bool
-    notes: List[str] = field(default_factory=list)
+    notes: list[str] = field(default_factory=list)
 
 
-def score_golden_case(case: Dict[str, Any], actual_context_items: List[Dict[str, Any]]) -> GoldenCaseResult:
+def score_golden_case(case: dict[str, Any], actual_context_items: list[dict[str, Any]]) -> GoldenCaseResult:
     """Compare a golden case's expectations against what the pipeline actually produced.
 
     Expected case shape (see data/golden-sets/):

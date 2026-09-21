@@ -1,4 +1,4 @@
-from .scorer import score_golden_case, GoldenCaseResult
 from .loader import load_golden_set
+from .scorer import GoldenCaseResult, score_golden_case
 
-__all__ = ["score_golden_case", "GoldenCaseResult", "load_golden_set"]
+__all__ = ["GoldenCaseResult", "load_golden_set", "score_golden_case"]

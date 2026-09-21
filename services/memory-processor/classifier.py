@@ -8,12 +8,10 @@ structured-output LLM call behind the same ExtractionCandidate contract when
 ready; the interface does not change.)
 """
 import hashlib
-from datetime import datetime, timezone
-from typing import List
-
-from packages.contracts import ExtractionCandidate, InteractionEvent
 
 from entity_resolution import resolve
+
+from packages.contracts import ExtractionCandidate, InteractionEvent
 
 
 def _deterministic_id(subject_id: str, fact: str, source_event_id: str) -> str:
@@ -21,8 +19,8 @@ def _deterministic_id(subject_id: str, fact: str, source_event_id: str) -> str:
     return f"mem_{h}"
 
 
-def classify(event: InteractionEvent) -> List[ExtractionCandidate]:
-    candidates: List[ExtractionCandidate] = []
+def classify(event: InteractionEvent) -> list[ExtractionCandidate]:
+    candidates: list[ExtractionCandidate] = []
 
     if event.event_type == "statement":
         raw_text = str(event.payload.get("text", ""))
@@ -85,7 +83,7 @@ def classify(event: InteractionEvent) -> List[ExtractionCandidate]:
     return candidates
 
 
-def extract_candidates(event: InteractionEvent) -> List[ExtractionCandidate]:
+def extract_candidates(event: InteractionEvent) -> list[ExtractionCandidate]:
     """The extraction entry point used by both the API and the queue consumer.
 
     §5.4: "Assign confidence and policy class using deterministic rules PLUS

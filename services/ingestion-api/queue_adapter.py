@@ -8,13 +8,13 @@ asynchronous so the user path is not blocked by graph writes."
 import json
 import os
 from queue import Queue
-from typing import Any, Dict
+from typing import Any
 
 LOCAL_MODE = os.getenv("LOCAL_MODE", "true").lower() == "true"
 KAFKA_TOPIC = os.getenv("KAFKA_INTERACTION_EVENTS_TOPIC", "interaction-events")
 
 # Process-local fallback queue (dev/test only — not durable across restarts).
-_LOCAL_QUEUE: "Queue[str]" = Queue()
+_LOCAL_QUEUE: Queue[str] = Queue()
 
 
 class QueueAdapter:
@@ -31,7 +31,7 @@ class QueueAdapter:
             except Exception:
                 self.local_mode = True  # fail open to local queue rather than crash ingestion
 
-    def publish(self, event: Dict[str, Any]) -> None:
+    def publish(self, event: dict[str, Any]) -> None:
         if self.local_mode:
             _LOCAL_QUEUE.put(json.dumps(event))
         else:

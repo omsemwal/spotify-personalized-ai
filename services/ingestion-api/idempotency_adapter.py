@@ -4,12 +4,11 @@ is an in-process dict so tests/local dev do not require a running Redis.
 """
 import os
 import time
-from typing import Dict
 
 LOCAL_MODE = os.getenv("LOCAL_MODE", "true").lower() == "true"
 TTL_SECONDS = 86400
 
-_LOCAL_STORE: Dict[str, float] = {}
+_LOCAL_STORE: dict[str, float] = {}
 
 
 class IdempotencyAdapter:

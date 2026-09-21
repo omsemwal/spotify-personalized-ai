@@ -7,7 +7,6 @@ set when Postgres is unreachable, so retrieval still works, just without the
 negative signal.
 """
 import os
-from typing import Set
 
 # Feedback types that mean "this memory was not wanted" (packages/contracts/feedback.py)
 NEGATIVE_TYPES = ("irrelevant", "rejection", "satisfaction_negative")
@@ -46,7 +45,7 @@ def get_backend() -> str:
     return _BACKEND
 
 
-def negative_feedback_memory_ids(subject_id: str) -> Set[str]:
+def negative_feedback_memory_ids(subject_id: str) -> set[str]:
     """Memory IDs this subject gave negative feedback on. Subject-scoped: one
     subject's feedback can never influence another's ranking (§5.4 isolation)."""
     c = _conn()

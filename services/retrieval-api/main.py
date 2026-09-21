@@ -8,24 +8,24 @@ Spec ref: §5.4 "Embeddings and Retrieval", §6.1 steps 5-6.
 import os
 import sys
 from pathlib import Path
+
 _repo_root = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(_repo_root))
 sys.path.insert(0, str(_repo_root / "packages" / "graph-schema"))
 sys.path.insert(0, str(_repo_root / "packages" / "policy-engine"))
 
+import operational_store
+from embeddings import get_embedder
+from engine import PolicyContext, PolicyEngine
 from fastapi import FastAPI, HTTPException, status
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
+from reranker import rerank
+from store_factory import get_graph_store
+from vector_store import InMemoryVectorStore
 
 from packages.contracts import SearchMemoryOutput, SearchMemoryResult, Trace
 from packages.observability import TraceRecorder
-from engine import PolicyContext, PolicyEngine
-
-from embeddings import get_embedder
-from reranker import rerank
-import operational_store
-from store_factory import get_graph_store
-from vector_store import InMemoryVectorStore
 
 app = FastAPI(
     title="Spotify Memory System — Retrieval API",
@@ -122,7 +122,9 @@ def search_memories(req: SearchRequest):
     with recorder.stage("policy_filter"):
         filtered = []
         for mem in reranked:
-            allowed, codes = policy_engine.evaluate_retrieval(mem, ctx)
+            # TODO(U9): surface these rejection codes in the trace — the
+            # console's context preview needs to show why a memory was removed.
+            allowed, _codes = policy_engine.evaluate_retrieval(mem, ctx)
             if allowed:
                 filtered.append(mem)
                 recorder.use_memory(mem["memory_id"])

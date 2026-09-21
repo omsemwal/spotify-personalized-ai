@@ -7,7 +7,6 @@ identifiers... maintain alias tables."
 Pilot implementation uses a small in-memory alias table standing in for the
 real catalog service. Swap `resolve()` for a catalog API call in production.
 """
-from typing import List
 
 _ALIAS_TABLE = {
     "lofi": "genre:lofi_focus",
@@ -23,7 +22,7 @@ _ALIAS_TABLE = {
 }
 
 
-def resolve(raw_terms: List[str]) -> List[str]:
+def resolve(raw_terms: list[str]) -> list[str]:
     resolved = []
     for term in raw_terms:
         key = term.strip().lower()

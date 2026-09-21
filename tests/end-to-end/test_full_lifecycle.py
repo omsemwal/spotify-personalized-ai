@@ -4,18 +4,20 @@ the pytest equivalent of the submission checklist's core-workflow item (§11).
 """
 import sys
 from pathlib import Path
+
 repo_root = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(repo_root))
 sys.path.insert(0, str(repo_root / "packages" / "graph-schema"))
 sys.path.insert(0, str(repo_root / "services" / "memory-processor"))
 sys.path.insert(0, str(repo_root / "services" / "context-composer"))
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
+
+from classifier import classify
+from composer import compose_context
+from memory_store import InMemoryGraphStore
 
 from packages.contracts import InteractionEvent
-from classifier import classify
-from memory_store import InMemoryGraphStore
-from composer import compose_context
 
 
 def test_capture_through_context_injection():
@@ -23,7 +25,7 @@ def test_capture_through_context_injection():
     event = InteractionEvent(
         event_id="e_e2e_1", subject_id="u_e2e_1", surface="music_chat", event_type="statement",
         payload={"text": "I like low-vocal focus playlists while working", "entities": ["low-vocal", "focus"], "explicit": True},
-        locale="en-US", timestamp=datetime.now(timezone.utc).isoformat(),
+        locale="en-US", timestamp=datetime.now(UTC).isoformat(),
         consent_state="granted", idempotency_key="idem_e2e_1",
     )
 
@@ -33,7 +35,7 @@ def test_capture_through_context_injection():
 
     # 3. Graph write
     store = InMemoryGraphStore()
-    now = datetime.now(timezone.utc).isoformat()
+    now = datetime.now(UTC).isoformat()
     store.write_memory({
         "memory_id": candidates[0].memory_id, "subject_id": event.subject_id,
         "fact_text": candidates[0].normalized_fact, "memory_type": candidates[0].memory_type,

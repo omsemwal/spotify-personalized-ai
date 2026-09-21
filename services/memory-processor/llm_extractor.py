@@ -26,11 +26,11 @@ import json
 import os
 import urllib.error
 import urllib.request
-from typing import Any, Dict, List
-
-from packages.contracts import ExtractionCandidate, InteractionEvent
+from typing import Any
 
 from entity_resolution import resolve
+
+from packages.contracts import ExtractionCandidate, InteractionEvent
 
 API_KEY = os.getenv("GEMINI_API_KEY", "").strip()
 MODEL = os.getenv("EXTRACTION_MODEL", "gemini-2.5-flash").strip()
@@ -43,7 +43,7 @@ ALLOWED_SCOPES = ["durable", "episodic"]
 # §7.5 System instruction: role, allowed taxonomy, prohibited inferences,
 # subject boundary, temporal rules, and the requirement to return no memory
 # when evidence is insufficient.
-SYSTEM_INSTRUCTION = f"""You extract durable memory candidates from a single Spotify interaction event.
+SYSTEM_INSTRUCTION = """You extract durable memory candidates from a single Spotify interaction event.
 
 ALLOWED MEMORY TAXONOMY — use exactly one of these for memory_type:
 - explicit_preference: the user directly stated a lasting taste or want.
@@ -119,7 +119,7 @@ def _clamp(value: Any, low: float = 0.0, high: float = 1.0, default: float = 0.5
         return default
 
 
-def _call_gemini(event: InteractionEvent) -> Dict[str, Any]:
+def _call_gemini(event: InteractionEvent) -> dict[str, Any]:
     url = (f"https://generativelanguage.googleapis.com/v1beta/models/"
            f"{MODEL}:generateContent?key={API_KEY}")
     # Only the fields the model needs. No other subject's data is ever included.
@@ -144,13 +144,15 @@ def _call_gemini(event: InteractionEvent) -> Dict[str, Any]:
     req = urllib.request.Request(url, data=body,
                                  headers={"Content-Type": "application/json"},
                                  method="POST")
-    with urllib.request.urlopen(req, timeout=TIMEOUT_SECONDS) as resp:
+    # The URL is built from a constant https endpoint and a model name, never
+    # from user input. Replaced by the Anthropic SDK in U6.
+    with urllib.request.urlopen(req, timeout=TIMEOUT_SECONDS) as resp:  # noqa: S310
         payload = json.load(resp)
     text = payload["candidates"][0]["content"]["parts"][0]["text"]
     return json.loads(text)
 
 
-def get_llm_candidates(event: InteractionEvent) -> List[ExtractionCandidate]:
+def get_llm_candidates(event: InteractionEvent) -> list[ExtractionCandidate]:
     """Typed candidates from the model, fully validated. Returns [] when the
     model is unavailable, so extraction degrades to deterministic rules rather
     than failing the request (§5.5 Reliability)."""
@@ -162,7 +164,7 @@ def get_llm_candidates(event: InteractionEvent) -> List[ExtractionCandidate]:
     except Exception:
         return []
 
-    out: List[ExtractionCandidate] = []
+    out: list[ExtractionCandidate] = []
     for item in (raw.get("candidates") or [])[:5]:
         try:
             if item.get("decision") != "accept":

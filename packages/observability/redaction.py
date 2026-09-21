@@ -2,12 +2,12 @@
 Redaction helper — §5.4 "Redact sensitive payloads from logs while preserving
 identifiers needed for investigation."
 """
-from typing import Any, Dict
+from typing import Any
 
 SENSITIVE_KEYS = {"fact_text", "payload", "comment", "raw_text", "email", "phone"}
 
 
-def redact_payload(data: Dict[str, Any]) -> Dict[str, Any]:
+def redact_payload(data: dict[str, Any]) -> dict[str, Any]:
     """Returns a copy with sensitive free-text fields replaced by a length marker,
     keeping identifiers (ids, timestamps, types, scores) intact for debugging."""
     out = {}

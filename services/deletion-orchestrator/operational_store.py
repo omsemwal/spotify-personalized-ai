@@ -9,11 +9,11 @@ The fallback is not durable — get_backend() says which one is live.
 """
 import json
 import os
-from typing import Any, Dict, Optional
+from typing import Any
 
 _POOL = None
 _BACKEND = "memory"
-_FALLBACK: Dict[str, dict] = {}
+_FALLBACK: dict[str, dict] = {}
 
 
 def _dsn() -> str:
@@ -47,7 +47,7 @@ def get_backend() -> str:
     return _BACKEND
 
 
-def save_job(job: Dict[str, Any]) -> None:
+def save_job(job: dict[str, Any]) -> None:
     """Insert or update one deletion job. Store status is kept as JSON so a
     partial failure stays visible per store (§5.4: never silent partial completion)."""
     c = _conn()
@@ -71,7 +71,7 @@ def save_job(job: Dict[str, Any]) -> None:
         _FALLBACK[job["job_id"]] = job
 
 
-def get_job(job_id: str) -> Optional[Dict[str, Any]]:
+def get_job(job_id: str) -> dict[str, Any] | None:
     c = _conn()
     if c is None:
         return _FALLBACK.get(job_id)

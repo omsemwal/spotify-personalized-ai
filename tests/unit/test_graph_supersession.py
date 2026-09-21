@@ -1,6 +1,7 @@
 """Unit: temporal graph supersession never destroys history (§6.1 step 3)."""
 import sys
 from pathlib import Path
+
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "packages" / "graph-schema"))
 
 from memory_store import InMemoryGraphStore

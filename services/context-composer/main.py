@@ -8,23 +8,23 @@ Spec ref: §5.4 "Context Composition and LLM Integration", §6.1 step 7.
 import os
 import sys
 from pathlib import Path
+
 _repo_root = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(_repo_root))
 sys.path.insert(0, str(_repo_root / "packages" / "graph-schema"))
 sys.path.insert(0, str(_repo_root / "packages" / "policy-engine"))
 
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import httpx
+import operational_store
+from composer import compose_context
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
 from packages.contracts import ContextPackage, FeedbackEvent
-
-from composer import compose_context
-import operational_store
 
 app = FastAPI(
     title="Spotify Memory System — Context Composer",
@@ -94,7 +94,7 @@ async def compose(req: ComposeRequest):
     results = [
         {"memory_id": r["memory_id"], "fact": r["fact"], "memory_type": r["memory_type"],
          "confidence": r["confidence"], "relevance_reason": r["relevance_reason"],
-         "recorded_at": datetime.now(timezone.utc).isoformat()}
+         "recorded_at": datetime.now(UTC).isoformat()}
         for r in search_data.get("results", [])
     ]
     trace_id = str(uuid.uuid4())

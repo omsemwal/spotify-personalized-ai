@@ -3,22 +3,25 @@ the graph store end to end (ingestion -> classification -> graph), using the
 in-memory adapters so this runs without live infra (§7.7 Functional coverage)."""
 import sys
 from pathlib import Path
+
 repo_root = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(repo_root))
 sys.path.insert(0, str(repo_root / "packages" / "graph-schema"))
 sys.path.insert(0, str(repo_root / "services" / "memory-processor"))
 
-from packages.contracts import InteractionEvent
+from datetime import UTC, datetime
+
 from classifier import classify
 from memory_store import InMemoryGraphStore
-from datetime import datetime, timezone
+
+from packages.contracts import InteractionEvent
 
 
 def test_explicit_statement_flows_to_graph():
     event = InteractionEvent(
         event_id="e_it_1", subject_id="u_it_1", surface="music_chat", event_type="statement",
         payload={"text": "I like jazz in the evening", "entities": ["jazz"], "explicit": True},
-        locale="en-US", timestamp=datetime.now(timezone.utc).isoformat(),
+        locale="en-US", timestamp=datetime.now(UTC).isoformat(),
         consent_state="granted", idempotency_key="idem_it_1",
     )
     candidates = classify(event)
@@ -26,7 +29,7 @@ def test_explicit_statement_flows_to_graph():
     assert candidates[0].decision == "accept"
 
     store = InMemoryGraphStore()
-    now = datetime.now(timezone.utc).isoformat()
+    now = datetime.now(UTC).isoformat()
     store.write_memory({
         "memory_id": candidates[0].memory_id, "subject_id": event.subject_id,
         "fact_text": candidates[0].normalized_fact, "memory_type": candidates[0].memory_type,

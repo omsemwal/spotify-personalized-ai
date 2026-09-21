@@ -8,12 +8,12 @@ Falls back to an in-process list when Postgres is unreachable, so a tool call is
 never failed by the audit path.
 """
 import os
-from datetime import datetime, timezone
-from typing import Any, Dict, List
+from datetime import UTC, datetime
+from typing import Any
 
 from packages.observability import redact_payload
 
-_AUDIT_LOG: List[Dict[str, Any]] = []
+_AUDIT_LOG: list[dict[str, Any]] = []
 _CONN = None
 _BACKEND = "memory"
 
@@ -48,12 +48,12 @@ def get_backend() -> str:
     return _BACKEND
 
 
-def record(tool_name: str, subject_id: str, input_summary: Dict[str, Any], outcome: str) -> None:
+def record(tool_name: str, subject_id: str, input_summary: dict[str, Any], outcome: str) -> None:
     safe = redact_payload(input_summary or {})
     entry = {
         "tool_name": tool_name, "subject_id": subject_id,
         "input_summary": safe, "outcome": outcome,
-        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "timestamp": datetime.now(UTC).isoformat(),
     }
     c = _conn()
     if c is None:
@@ -70,5 +70,5 @@ def record(tool_name: str, subject_id: str, input_summary: Dict[str, Any], outco
         _AUDIT_LOG.append(entry)
 
 
-def get_audit_log() -> List[Dict[str, Any]]:
+def get_audit_log() -> list[dict[str, Any]]:
     return list(_AUDIT_LOG)
