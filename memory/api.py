@@ -23,6 +23,7 @@ from memory import (
     graph,
     model_client,
     policy,
+    retrieval,
 )
 from memory.auth import Caller, authenticate, bind_subject
 from memory.models import (
@@ -33,6 +34,8 @@ from memory.models import (
     ExtractionResult,
     CreateMemoryRequest,
     MemoryCreated,
+    SearchRequest,
+    SearchResult,
 )
 
 app = FastAPI(
@@ -360,10 +363,67 @@ def create_memory(
 
 # --- Read path ------------------------------------------------------------
 
-@app.post("/v1/memories/search")
-def search_memories(body: dict, caller: Caller = Depends(authenticate)):
-    """4. Return ranked, subject-scoped memories for the current intent."""
-    return {"results": [], "trace_id": "trc_stub"}
+@app.post("/v1/memories/search", response_model=SearchResult)
+def search_memories(
+    request: SearchRequest,
+    background: BackgroundTasks,
+    caller: Caller = Depends(authenticate),
+):
+    """4. Return ranked, subject-scoped memories for the current intent.
+
+    abc.md:309 - ranked for intent, surface, locale and token budget.
+    Hybrid candidates (abc.md:123), reranked on seven signals
+    (abc.md:124), then diversity and policy filters (abc.md:125, :192).
+    """
+    bind_subject(caller, request.subject_id)
+
+    # Refuse and record why.
+    def deny(status: int, code: str, message: str) -> HTTPException:
+        db.record_audit(
+            action="search.rejected",
+            subject_id=request.subject_id,
+            service_id=caller.service_id,
+            outcome="rejected",
+            correlation_id=errors.correlation_id.get(),
+            reason=code,
+        )
+        return HTTPException(status_code=status, detail=errors.error(code, message))
+
+    if cache.is_rate_limited(request.subject_id):
+        raise deny(429, errors.RATE_LIMITED, "too many requests this minute")
+
+    # abc.md:53 - consent is enforced "before memory reaches retrieval".
+    # This is that point.
+    consent = db.get_consent(request.subject_id)
+    if consent != "granted":
+        raise deny(403, errors.CONSENT_DENIED, f"consent is {consent}")
+
+    # Anything the listener marked unhelpful counts against a memory
+    # (abc.md:124, negative feedback).
+    negative = db.negative_feedback(request.subject_id)
+
+    found = retrieval.search(
+        subject_id=request.subject_id,
+        intent=request.intent,
+        surface=request.surface,
+        limit=request.limit,
+        negative=negative,
+    )
+
+    # abc.md:322 - every response links to a trace. The correlation id is
+    # that link, and it is already on the response header.
+    trace_id = errors.correlation_id.get()
+
+    background.add_task(
+        db.record_audit,
+        action="search.completed",
+        subject_id=request.subject_id,
+        service_id=caller.service_id,
+        outcome="found" if found["results"] else "empty",
+        correlation_id=trace_id,
+    )
+
+    return SearchResult(**found, trace_id=trace_id)
 
 
 @app.post("/v1/context/compose")

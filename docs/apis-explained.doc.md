@@ -4,7 +4,7 @@ Why this file exists: the other docs explain *how* each API works, in
 detail. This one explains *what* each API is for, in one page, with no
 jargon.
 
-Three of the ten are built.
+Four of the ten are built.
 
 ---
 
@@ -21,14 +21,14 @@ gives them a memory.
    │  1. Write it down       ✅ built │
    │  2. Decide what matters ✅ built │
    │  3. Save it             ✅ built │
-   │  4. Find it again       (next)  │
-   │  5. Use it in a reply   (later) │
+   │  4. Find it again       ✅ built │
+   │  5. Use it in a reply   (next)  │
    └─────────────────────────────────┘
 ```
 
-Memories are now saved and survive. What is missing is using them: nothing
-finds a memory when someone asks a question, and nothing hands it to the
-AI.
+Memories are saved, and we can now find the right ones when someone asks
+something. What is missing is the last step: handing them to the AI so the
+reply actually uses them.
 
 ---
 
@@ -312,6 +312,70 @@ findable. Actually finding the right ones for a question is API 4.
 
 ---
 
+## API 4 — `POST /v1/memories/search`
+
+### What it does
+
+**Finds the few memories worth using, for what is being asked right now.**
+
+You ask for "something to concentrate to". It looks through everything the
+listener has ever told us and returns the handful that matter.
+
+### It searches two ways at once
+
+**By meaning** - finds things with no words in common:
+
+```
+you ask  : "music with no vocals"
+it finds : "Prefers instrumental music while working"
+```
+
+**By name** - finds things attached to something they actually said:
+
+```
+you ask  : "country"
+it finds : "Does not want country music"
+```
+
+Each way alone misses things. Together they cover both.
+
+### Then it puts them in the right order
+
+Closest match is not the same as most useful. Real output:
+
+```
+0.831   "Prefers instrumental music while working"     they SAID this
+0.690   "Played a focus playlist this morning"         they DID this once
+```
+
+The second one is actually a closer match to the question. It still comes
+second, because something a listener **said** counts for more than
+something they **did once**.
+
+Six things decide the order: how close it is, whether they said it or we
+guessed it, how sure we were, how recent it is, how often they said it,
+and whether they ever marked it unhelpful.
+
+### And it hides what should not be shown
+
+| Hidden | Why |
+|---|---|
+| Guesses, on the player | An unconfirmed guess should not silently change the music |
+| Anything they corrected | The old belief is retired |
+| Anything too old | Past its use-by date |
+| Another listener's | Never reachable at all |
+| Too many about one thing | Ten memories about one artist is really one fact |
+
+The reply says **what was hidden and why** - so nothing disappears
+silently.
+
+### What it does not do
+
+**It does not talk to the AI.** It hands back a ranked list. Turning that
+list into something an AI can use, within a size limit, is API 5.
+
+---
+
 ## What this means today
 
 If a listener says *"no country music"* right now:
@@ -319,15 +383,15 @@ If a listener says *"no country music"* right now:
 - API 1 writes down that they said it ✅
 - API 2 works out it is an exclusion ✅
 - API 3 saves it, and retires anything it contradicts ✅
-- Nothing looks it up when they next ask for music ❌
+- API 4 finds it again when they next ask for music ✅
+- Nothing hands it to the AI ❌
 - So the reply still ignores it ❌
 
-**The loop is nearly closed.** Two more APIs finish it:
+**One API left to close the loop:**
 
 | | |
 |---|---|
-| API 4 | Find the right memories when they ask something |
-| API 5 | Hand them to the AI so the reply actually uses them |
+| API 5 | Hand the memories to the AI so the reply actually uses them |
 
 ---
 
@@ -338,5 +402,6 @@ If a listener says *"no country music"* right now:
 | `events.doc.md` | API 1 in detail |
 | `memories-extract.doc.md` | API 2 in detail |
 | `memories.doc.md` | API 3 in detail |
+| `memories-search.doc.md` | API 4 in detail |
 | `HOW_IT_WORKS.md` | API 1 line by line, with the code |
 | `REQUIREMENTS.md` | What the project has to deliver |

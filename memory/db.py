@@ -283,3 +283,22 @@ def get_event(event_id: str, subject_id: str) -> dict | None:
     keys = ("event_id", "subject_id", "event_type", "surface", "locale",
             "occurred_at", "content")
     return dict(zip(keys, row))
+
+
+# --- Feedback -------------------------------------------------------------
+
+def negative_feedback(subject_id: str) -> set[str]:
+    """Memory ids this subject marked unhelpful.
+
+    abc.md:124 lists negative feedback as a ranking signal. Until
+    POST /v1/feedback is real this reads the audit trail, which already
+    records rejections against a memory id.
+    """
+    with connect() as conn:
+        rows = conn.execute(
+            "SELECT DISTINCT memory_id FROM audit_log "
+            "WHERE subject_id = %s AND action = 'feedback.negative' "
+            "AND memory_id IS NOT NULL",
+            (subject_id,),
+        ).fetchall()
+    return {r[0] for r in rows}

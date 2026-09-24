@@ -128,6 +128,60 @@ class MemoryCreated(BaseModel):
     superseded: str | None = None
 
 
+class SearchRequest(BaseModel):
+    """What POST /v1/memories/search accepts.
+
+    abc.md:309 - "Return ranked subject-scoped memories for intent,
+    surface, locale, and token budget."
+    """
+
+    subject_id: str = Field(min_length=1)
+
+    # What the listener is asking for now.
+    intent: str = Field(min_length=1, max_length=500)
+
+    surface: Literal["chat", "player", "search"] = "chat"
+    locale: str = "en-US"
+
+    # How many to return. The token budget itself is applied by context
+    # composition (endpoint 5), which knows what the pack looks like.
+    limit: int = Field(default=10, ge=1, le=50)
+
+
+class RankedMemory(BaseModel):
+    """One memory, with why it scored as it did.
+
+    The signals are returned, not just the total. abc.md:341 wants a
+    reason on every result, and a score with no breakdown cannot be
+    debugged when it ranks something wrongly.
+    """
+
+    memory_id: str
+    memory_type: str
+    fact: str
+    confidence: float
+    score: float
+    signals: dict[str, float]
+    entities: list[str] = Field(default_factory=list)
+    evidence_count: int = 1
+
+
+class SearchResult(BaseModel):
+    """What POST /v1/memories/search returns."""
+
+    results: list[RankedMemory] = Field(default_factory=list)
+
+    # What was found but then dropped, and why. abc.md:192 - the policy
+    # engine removes items; saying which makes that checkable.
+    removed: list[str] = Field(default_factory=list)
+
+    # How many candidates were considered before ranking.
+    considered: int = 0
+
+    # abc.md:322 - every response links to a trace.
+    trace_id: str
+
+
 class ExtractRequest(BaseModel):
     """What POST /v1/memories/extract accepts.
 

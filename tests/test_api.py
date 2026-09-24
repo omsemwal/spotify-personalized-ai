@@ -75,7 +75,13 @@ def test_create_memory():
 # --- Read path ------------------------------------------------------------
 
 def test_search_memories():
-    r = client.post("/v1/memories/search", json={"subject_id": "user_001"}, headers=AUTH)
+    # Now a typed request needing an intent. See tests/test_search_api.py
+    # for ranking, policy filtering and diversity.
+    r = client.post(
+        "/v1/memories/search",
+        json={"subject_id": "user_001", "intent": "something for working"},
+        headers=AUTH,
+    )
     assert r.status_code == 200
     assert "results" in r.json()
 
