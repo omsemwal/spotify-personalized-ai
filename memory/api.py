@@ -13,7 +13,7 @@ from fastapi import BackgroundTasks, Depends, FastAPI, HTTPException
 from fastapi.exceptions import RequestValidationError
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
-from memory import cache, db, errors, extraction, model_client
+from memory import cache, db, entities as entity_resolver, errors, extraction, graph, model_client, policy
 from memory.auth import Caller, authenticate, bind_subject
 from memory.models import (
     SUPPORTED_SCHEMA_VERSION,
@@ -21,6 +21,8 @@ from memory.models import (
     EventAccepted,
     ExtractRequest,
     ExtractionResult,
+    CreateMemoryRequest,
+    MemoryCreated,
 )
 
 app = FastAPI(
@@ -226,10 +228,83 @@ def extract_memories(
     return result
 
 
-@app.post("/v1/memories")
-def create_memory(body: dict, caller: Caller = Depends(authenticate)):
-    """3. Create an explicit or approved memory."""
-    return {"memory_id": "mem_stub", "graph_version": 1, "policy_state": "allowed"}
+@app.post("/v1/memories", response_model=MemoryCreated)
+def create_memory(
+    request: CreateMemoryRequest,
+    background: BackgroundTasks,
+    caller: Caller = Depends(authenticate),
+):
+    """3. Create an explicit or approved memory, and store it in the graph.
+
+    abc.md:306 - "Create an explicit or approved memory and return stable
+    ID, graph version, and policy state."
+    """
+    bind_subject(caller, request.subject_id)
+
+    # Refuse and record why.
+    def deny(status: int, code: str, message: str) -> HTTPException:
+        db.record_audit(
+            action="memory.rejected",
+            subject_id=request.subject_id,
+            service_id=caller.service_id,
+            outcome="rejected",
+            correlation_id=errors.correlation_id.get(),
+            reason=code,
+        )
+        return HTTPException(status_code=status, detail=errors.error(code, message))
+
+    if cache.is_rate_limited(request.subject_id):
+        raise deny(429, errors.RATE_LIMITED, "too many requests this minute")
+
+    consent = db.get_consent(request.subject_id)
+    if consent != "granted":
+        raise deny(403, errors.CONSENT_DENIED, f"consent is {consent}")
+
+    # The same sensitivity rule as extraction. A memory written directly
+    # through this endpoint must not bypass abc.md:53.
+    if extraction.looks_sensitive(request.fact):
+        raise deny(403, errors.CONSENT_DENIED, "sensitive inference is not storable")
+
+    # Resolve names to catalog ids (abc.md:113) and stamp the policy class
+    # from the registry (abc.md:115). Neither is taken from the caller.
+    resolved = entity_resolver.resolve_all(request.entities)
+    policy_class = policy.classify(request.memory_type)
+
+    candidate = {
+        "memory_type": request.memory_type,
+        "fact": request.fact,
+        "confidence": request.confidence,
+        "entities": [e.model_dump() for e in resolved],
+        "policy": policy_class.model_dump(mode="json"),
+        "source_event_ids": request.source_event_ids,
+        "evidence_count": max(1, len(request.source_event_ids)),
+    }
+
+    if request.supersedes:
+        # abc.md:118 - close the old fact, keep it as history.
+        existing = graph.get_memory(request.supersedes, request.subject_id)
+        if existing is None:
+            raise deny(404, errors.NOT_FOUND, "no such memory for this subject")
+        created = graph.supersede(request.supersedes, request.subject_id, candidate)
+    else:
+        created = graph.create_memory(request.subject_id, candidate)
+
+    background.add_task(
+        db.record_audit,
+        action="memory.created",
+        subject_id=request.subject_id,
+        service_id=caller.service_id,
+        outcome="created",
+        correlation_id=errors.correlation_id.get(),
+        memory_id=created["memory_id"],
+    )
+
+    return MemoryCreated(
+        memory_id=created["memory_id"],
+        graph_version=created["graph_version"],
+        policy_state=policy_class.sensitivity,
+        superseded=created.get("superseded"),
+    )
 
 
 # --- Read path ------------------------------------------------------------

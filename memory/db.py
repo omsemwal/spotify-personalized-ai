@@ -150,6 +150,7 @@ def record_audit(
     correlation_id: str,
     reason: str | None = None,
     event_id: str | None = None,
+    memory_id: str | None = None,
 ) -> None:
     """Write one line saying what happened.
 
@@ -162,11 +163,11 @@ def record_audit(
             """
             INSERT INTO audit_log
                 (action, subject_id, service_id, outcome,
-                 correlation_id, reason, event_id)
-            VALUES (%s, %s, %s, %s, %s, %s, %s)
+                 correlation_id, reason, event_id, memory_id)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
             """,
             (action, subject_id, service_id, outcome,
-             correlation_id, reason, event_id),
+             correlation_id, reason, event_id, memory_id),
         )
 
 
@@ -175,12 +176,14 @@ def get_audit(subject_id: str) -> list[dict]:
     with connect() as conn:
         rows = conn.execute(
             """
-            SELECT action, outcome, reason, event_id, correlation_id, service_id
+            SELECT action, outcome, reason, event_id, correlation_id, service_id,
+                   memory_id
             FROM audit_log WHERE subject_id = %s ORDER BY id DESC
             """,
             (subject_id,),
         ).fetchall()
-    keys = ("action", "outcome", "reason", "event_id", "correlation_id", "service_id")
+    keys = ("action", "outcome", "reason", "event_id", "correlation_id",
+            "service_id", "memory_id")
     return [dict(zip(keys, row)) for row in rows]
 
 

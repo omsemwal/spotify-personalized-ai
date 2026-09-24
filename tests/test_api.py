@@ -60,7 +60,14 @@ def test_extract_memories():
 
 
 def test_create_memory():
-    r = client.post("/v1/memories", json={"subject_id": "user_001"}, headers=AUTH)
+    # Now a typed request. See tests/test_memories_api.py for its real
+    # behaviour; this only checks the endpoint is reachable and validates.
+    r = client.post(
+        "/v1/memories",
+        json={"subject_id": "user_001", "memory_type": "episode",
+              "fact": "Played a focus playlist"},
+        headers=AUTH,
+    )
     assert r.status_code == 200
     assert "memory_id" in r.json()
 

@@ -88,6 +88,46 @@ MEMORY_TYPES = (
 )
 
 
+class CreateMemoryRequest(BaseModel):
+    """What POST /v1/memories accepts.
+
+    abc.md:306 - "Create an explicit or approved memory". Either a
+    listener stating a preference outright, or a candidate that came
+    through extraction and was approved.
+    """
+
+    subject_id: str = Field(min_length=1)
+    memory_type: Literal[
+        "episode", "explicit_preference", "candidate_preference",
+        "exclusion", "correction",
+    ]
+    fact: str = Field(min_length=1, max_length=500)
+
+    # Names as written. They are resolved to catalog ids on the way in.
+    entities: list[str] = Field(default_factory=list)
+
+    confidence: float = Field(default=1.0, ge=0.0, le=1.0)
+
+    # Which events this came from. abc.md:114 - source lineage.
+    source_event_ids: list[str] = Field(default_factory=list)
+
+    # When correcting, the memory this replaces. abc.md:118 - corrections
+    # supersede prior facts rather than overwriting them.
+    supersedes: str | None = None
+
+
+class MemoryCreated(BaseModel):
+    """What POST /v1/memories returns.
+
+    abc.md:306 - "return stable ID, graph version, and policy state."
+    """
+
+    memory_id: str
+    graph_version: int
+    policy_state: str
+    superseded: str | None = None
+
+
 class ExtractRequest(BaseModel):
     """What POST /v1/memories/extract accepts.
 
@@ -98,6 +138,27 @@ class ExtractRequest(BaseModel):
 
     subject_id: str = Field(min_length=1)
     event_id: str = Field(min_length=1)
+
+
+class ResolvedEntity(BaseModel):
+    """One thing a memory is about, matched to the catalog where possible.
+
+    abc.md:113 - resolve artists, tracks, topics, activities and
+    contextual concepts to canonical identifiers.
+    """
+
+    # What the listener actually wrote.
+    name: str
+
+    # The catalog id, or None when we could not match it confidently. A
+    # wrong id is worse than none - it attaches the memory to the wrong
+    # artist.
+    entity_id: str | None = None
+    canonical_name: str | None = None
+    entity_type: str | None = None
+
+    # 1.0 for an exact alias match, lower for a near miss.
+    match_confidence: float = 0.0
 
 
 class PolicyClass(BaseModel):
@@ -134,9 +195,9 @@ class CandidateMemory(BaseModel):
     # "candidate facts".
     fact: str = Field(min_length=1, max_length=500)
 
-    # Artists, tracks, topics, activities mentioned (abc.md:113). These are
-    # raw names; resolving them to canonical ids comes later.
-    entities: list[str] = Field(default_factory=list)
+    # Artists, tracks, topics and activities this memory is about,
+    # resolved to catalog ids where possible (abc.md:113).
+    entities: list[ResolvedEntity] = Field(default_factory=list)
 
     # 0.0 to 1.0. abc.md:115 - assigned by "deterministic rules plus
     # structured model output", so our code always has the final say.
@@ -150,6 +211,14 @@ class CandidateMemory(BaseModel):
     # surfaces may show it. abc.md:115 - assigned by our deterministic
     # rules, never by the model. Filled in by memory/policy.py.
     policy: PolicyClass | None = None
+
+    # Which events produced this memory. abc.md:114 - "retaining source
+    # lineage": merging duplicates must never lose where they came from.
+    source_event_ids: list[str] = Field(default_factory=list)
+
+    # How many separate events said this. abc.md:49 - repeated evidence is
+    # what turns a guess into a durable preference.
+    evidence_count: int = 1
 
 
 class ExtractionResult(BaseModel):
