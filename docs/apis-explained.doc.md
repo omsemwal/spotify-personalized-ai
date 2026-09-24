@@ -4,7 +4,7 @@ Why this file exists: the other docs explain *how* each API works, in
 detail. This one explains *what* each API is for, in one page, with no
 jargon.
 
-Two of the ten are built.
+Three of the ten are built.
 
 ---
 
@@ -18,16 +18,17 @@ gives them a memory.
             │
             ▼
    ┌─────────────────────────────────┐
-   │  1. Write it down    ✅ built    │
+   │  1. Write it down       ✅ built │
    │  2. Decide what matters ✅ built │
-   │  3. Save it          (next)     │
-   │  4. Find it again    (later)    │
-   │  5. Use it in a reply(later)    │
+   │  3. Save it             ✅ built │
+   │  4. Find it again       (next)  │
+   │  5. Use it in a reply   (later) │
    └─────────────────────────────────┘
 ```
 
-Right now we can write things down and work out what matters. We cannot
-yet save it — so the system still forgets everything.
+Memories are now saved and survive. What is missing is using them: nothing
+finds a memory when someone asks a question, and nothing hands it to the
+AI.
 
 ---
 
@@ -205,9 +206,109 @@ Both events are kept as the source, so nothing becomes untraceable.
 ### What it does not do
 
 **It does not save anything.** It works out what *should* be remembered
-and hands the answer back. Nothing is written down.
+and hands the answer back.
 
 That is API 3.
+
+---
+
+## API 3 — `POST /v1/memories`
+
+### What it does
+
+**Saves the memory, so it is still there tomorrow.**
+
+APIs 1 and 2 work things out and then forget them. This one writes the
+memory down properly.
+
+### Where it goes
+
+Into Neo4j, a database built for things that are connected. A memory is
+stored joined to what it is about:
+
+```
+    "Prefers instrumental music while working"
+                  │
+          ┌───────┴───────┐
+          ▼               ▼
+   instrumental        working
+```
+
+### The clever part: changing your mind
+
+The listener says *"I love country"* on Monday, and *"no more country"* on
+Friday. Those cannot both be true.
+
+The system **notices this by itself** - nobody tells it - and retires the
+Monday memory:
+
+```
+"Loves country music"        finished on Friday   (kept)
+"Does not want country"      the live one
+```
+
+**The old memory is not deleted.** It is marked finished and kept. So you
+can always answer "why did it think I liked country?"
+
+That matters more than it sounds. A system that quietly overwrites what it
+believed cannot explain itself, and nobody can check it.
+
+### Saying something twice
+
+```
+Monday : "I like jazz"
+Friday : "I like jazz"
+```
+
+This does **not** make two memories. It makes **one memory we are now more
+sure of** - because saying a thing twice is stronger evidence than saying
+it once.
+
+### Forgetting old things
+
+Every memory is saved with a use-by date, set by its kind:
+
+| Kind | Kept |
+|---|---|
+| Exclusion | 730 days |
+| Correction | 730 days |
+| Explicit preference | 365 days |
+| Candidate preference | 90 days |
+| Episode | 30 days |
+
+Once the date passes, the memory is marked finished. Again - marked, not
+deleted.
+
+### Searching by meaning
+
+When a memory is saved, its sentence is also turned into **384 numbers**.
+Sentences that mean similar things get similar numbers.
+
+That lets us find a memory **without sharing any words with it**:
+
+```
+you search : "music with no vocals"
+it finds   : "Prefers instrumental music while working"
+```
+
+Not one word in common. Ordinary word-matching would find nothing.
+
+It works across languages too - searching in Spanish finds a memory
+written in English.
+
+### Things the caller does not get to decide
+
+The app sending the memory cannot choose the memory's id, its entity ids,
+how long it is kept, or its numbers. We work all of those out ourselves,
+so an app cannot smuggle in something it should not.
+
+And a sensitive fact - "feels depressed" - is refused here too, the same
+as in API 2. There is no back door.
+
+### What it does not do
+
+**It does not find memories for you.** It stores them and makes them
+findable. Actually finding the right ones for a question is API 4.
 
 ---
 
@@ -217,16 +318,16 @@ If a listener says *"no country music"* right now:
 
 - API 1 writes down that they said it ✅
 - API 2 works out it is an exclusion ✅
-- Nothing saves it ❌
-- Tomorrow, the system has forgotten ❌
+- API 3 saves it, and retires anything it contradicts ✅
+- Nothing looks it up when they next ask for music ❌
+- So the reply still ignores it ❌
 
-**The loop is not closed yet.** Three more APIs close it:
+**The loop is nearly closed.** Two more APIs finish it:
 
 | | |
 |---|---|
-| API 3 | Save the memory so it survives |
-| API 4 | Find it when they ask something related |
-| API 5 | Hand it to the AI so the reply uses it |
+| API 4 | Find the right memories when they ask something |
+| API 5 | Hand them to the AI so the reply actually uses them |
 
 ---
 
@@ -236,5 +337,6 @@ If a listener says *"no country music"* right now:
 |---|---|
 | `events.doc.md` | API 1 in detail |
 | `memories-extract.doc.md` | API 2 in detail |
+| `memories.doc.md` | API 3 in detail |
 | `HOW_IT_WORKS.md` | API 1 line by line, with the code |
 | `REQUIREMENTS.md` | What the project has to deliver |

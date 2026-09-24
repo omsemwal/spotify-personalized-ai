@@ -13,7 +13,17 @@ from fastapi import BackgroundTasks, Depends, FastAPI, HTTPException
 from fastapi.exceptions import RequestValidationError
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
-from memory import cache, db, entities as entity_resolver, errors, extraction, graph, model_client, policy
+from memory import (
+    cache,
+    db,
+    embeddings,
+    entities as entity_resolver,
+    errors,
+    extraction,
+    graph,
+    model_client,
+    policy,
+)
 from memory.auth import Caller, authenticate, bind_subject
 from memory.models import (
     SUPPORTED_SCHEMA_VERSION,
@@ -281,13 +291,54 @@ def create_memory(
     }
 
     if request.supersedes:
-        # abc.md:118 - close the old fact, keep it as history.
+        # The caller named the memory this replaces. abc.md:118 - close the
+        # old fact, keep it as history.
         existing = graph.get_memory(request.supersedes, request.subject_id)
         if existing is None:
             raise deny(404, errors.NOT_FOUND, "no such memory for this subject")
         created = graph.supersede(request.supersedes, request.subject_id, candidate)
+
     else:
-        created = graph.create_memory(request.subject_id, candidate)
+        # Nobody told us about a clash, so look for one ourselves.
+        # abc.md:189 - "Contradictions close or supersede prior facts
+        # instead of silently replacing history."
+        entity_ids = [e.entity_id for e in resolved if e.entity_id]
+        related = graph.find_about(request.subject_id, entity_ids)
+
+        contradicted = next(
+            (m for m in related
+             if graph.contradicts(request.memory_type, m["memory_type"])),
+            None,
+        )
+        same = next(
+            (m for m in related if m["memory_type"] == request.memory_type),
+            None,
+        )
+
+        if contradicted is not None:
+            # "I don't want country" arriving after "I love country".
+            created = graph.supersede(
+                contradicted["memory_id"], request.subject_id, candidate
+            )
+        elif same is not None:
+            # The same thing said again. abc.md:49 - repeated evidence
+            # strengthens one memory rather than making a second.
+            created = graph.strengthen(
+                same["memory_id"], request.subject_id,
+                request.source_event_ids, request.confidence,
+            )
+        else:
+            created = graph.create_memory(request.subject_id, candidate)
+
+    # abc.md:190 step 10 - embed the memory under the same id, right after
+    # it is written. Done in the background so the caller does not wait for
+    # the model to run.
+    background.add_task(
+        embeddings.store_for_memory,
+        created["memory_id"],
+        request.subject_id,
+        request.fact,
+    )
 
     background.add_task(
         db.record_audit,

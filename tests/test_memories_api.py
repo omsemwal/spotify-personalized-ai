@@ -209,3 +209,124 @@ def test_creation_is_audited():
 def test_the_audit_holds_no_memory_text():
     create(fact="Prefers very specific private music")
     assert "private music" not in str(db.get_audit("user_001")[0])
+
+
+# --- Contradiction (abc.md:118, :189) -------------------------------------
+
+def test_an_exclusion_contradicts_an_earlier_preference():
+    """Monday "I love country", Friday "I don't want country".
+
+    abc.md:189 - contradictions close prior facts instead of leaving two
+    opposite memories both alive.
+    """
+    liked = create(memory_type="explicit_preference",
+                   fact="Loves country music", entities=["country"]).json()["memory_id"]
+
+    now = create(memory_type="exclusion",
+                 fact="Does not want country music", entities=["country"]).json()
+
+    old = graph.get_memory(liked, "user_001")
+    assert old["status"] == "superseded"
+    assert now["superseded"] == liked
+    assert [m["fact"] for m in graph.list_memories("user_001")] == [
+        "Does not want country music"
+    ]
+
+
+def test_the_old_fact_is_kept_not_deleted():
+    """abc.md:118 - without erasing audit history prematurely."""
+    liked = create(memory_type="explicit_preference",
+                   fact="Loves country", entities=["country"]).json()["memory_id"]
+    create(memory_type="exclusion", fact="No country", entities=["country"])
+
+    old = graph.get_memory(liked, "user_001")
+    assert old is not None
+    assert old["valid_to"] is not None
+
+
+def test_a_correction_supersedes_whatever_it_is_about():
+    first = create(fact="Prefers jazz", entities=["jazz"]).json()["memory_id"]
+    create(memory_type="correction", fact="Never liked jazz", entities=["jazz"])
+    assert graph.get_memory(first, "user_001")["status"] == "superseded"
+
+
+def test_memories_about_different_things_do_not_contradict():
+    create(memory_type="explicit_preference", fact="Loves jazz", entities=["jazz"])
+    create(memory_type="exclusion", fact="No country", entities=["country"])
+    assert len(graph.list_memories("user_001")) == 2
+
+
+# --- Repeated evidence (abc.md:49) ----------------------------------------
+
+def test_saying_the_same_thing_twice_strengthens_one_memory():
+    """abc.md:49 - repeated evidence is what makes a preference durable."""
+    first = create(fact="Likes jazz", entities=["jazz"],
+                   source_event_ids=["evt_1"]).json()["memory_id"]
+    again = create(fact="Likes jazz", entities=["jazz"],
+                   source_event_ids=["evt_2"]).json()
+
+    assert again["memory_id"] == first, "should not create a second memory"
+    assert len(graph.list_memories("user_001")) == 1
+
+    stored = graph.get_memory(first, "user_001")
+    assert stored["evidence_count"] == 2
+    assert stored["source_event_ids"] == ["evt_1", "evt_2"]
+
+
+def test_repeating_raises_the_version():
+    first = create(entities=["jazz"], source_event_ids=["evt_1"]).json()
+    again = create(entities=["jazz"], source_event_ids=["evt_2"]).json()
+    assert again["graph_version"] > first["graph_version"]
+
+
+def test_a_stronger_statement_raises_the_confidence():
+    create(entities=["jazz"], confidence=0.5, source_event_ids=["evt_1"])
+    second = create(entities=["jazz"], confidence=0.95,
+                    source_event_ids=["evt_2"]).json()
+    assert graph.get_memory(second["memory_id"], "user_001")["confidence"] == 0.95
+
+
+def test_a_weaker_statement_does_not_lower_the_confidence():
+    create(entities=["jazz"], confidence=0.95, source_event_ids=["evt_1"])
+    second = create(entities=["jazz"], confidence=0.2,
+                    source_event_ids=["evt_2"]).json()
+    assert graph.get_memory(second["memory_id"], "user_001")["confidence"] == 0.95
+
+
+# --- Expiry (abc.md:118, :133) --------------------------------------------
+
+def test_an_expired_memory_is_marked_not_deleted():
+    memory_id = create(memory_type="episode", fact="Played a focus playlist",
+                       entities=["instrumental"]).json()["memory_id"]
+
+    # Age it past its retention period.
+    with graph.driver().session() as session:
+        session.run(
+            "MATCH (m:Memory {memory_id: $id}) "
+            "SET m.expires_at = datetime() - duration('P1D')",
+            id=memory_id,
+        )
+
+    assert graph.expire_memories("user_001") == 1
+
+    stored = graph.get_memory(memory_id, "user_001")
+    assert stored is not None, "history must survive"
+    assert stored["status"] == "expired"
+    assert stored["valid_to"] is not None
+
+
+def test_an_expired_memory_is_no_longer_active():
+    memory_id = create(memory_type="episode", entities=["instrumental"]).json()["memory_id"]
+    with graph.driver().session() as session:
+        session.run(
+            "MATCH (m:Memory {memory_id: $id}) "
+            "SET m.expires_at = datetime() - duration('P1D')", id=memory_id)
+
+    graph.expire_memories("user_001")
+    assert graph.list_memories("user_001") == []
+
+
+def test_a_memory_within_its_retention_period_is_untouched():
+    create(memory_type="explicit_preference", entities=["jazz"])
+    assert graph.expire_memories("user_001") == 0
+    assert len(graph.list_memories("user_001")) == 1

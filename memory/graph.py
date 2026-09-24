@@ -215,3 +215,106 @@ def delete_memories(subject_id: str) -> int:
             subject_id=subject_id,
         ).single()
     return record["removed"]
+
+
+# --- Contradiction, evidence and expiry (abc.md:118) ----------------------
+#
+# abc.md:118 - "Support contradiction, supersession, expiry, and explicit
+# correction without erasing audit history prematurely."
+#
+# Supersession and correction are above. These three complete the set.
+
+# Memory types that cannot both be true about the same thing at once.
+OPPOSING = {
+    ("explicit_preference", "exclusion"),
+    ("exclusion", "explicit_preference"),
+    ("candidate_preference", "exclusion"),
+    ("exclusion", "candidate_preference"),
+}
+
+
+# Find this subject's active memories that are about exactly these entities.
+def find_about(subject_id: str, entity_ids: list[str]) -> list[dict]:
+    # Subject-scoped, like every read (abc.md:119).
+    if not entity_ids:
+        return []
+
+    read = """
+    MATCH (m:Memory {subject_id: $subject_id, status: 'active'})-[:ABOUT]->(e:Entity)
+    WITH m, collect(e.entity_id) AS ids
+    WHERE apoc.coll.sort(ids) = apoc.coll.sort($entity_ids)
+    RETURN m AS memory
+    """
+    # apoc may not be installed, so do the comparison in Python instead.
+    fallback = """
+    MATCH (m:Memory {subject_id: $subject_id, status: 'active'})-[:ABOUT]->(e:Entity)
+    WITH m, collect(e.entity_id) AS ids
+    RETURN m AS memory, ids AS ids
+    """
+    wanted = set(entity_ids)
+    with driver().session() as session:
+        rows = session.run(fallback, subject_id=subject_id)
+        return [dict(r["memory"]) for r in rows if set(r["ids"]) == wanted]
+
+
+# Does a new memory contradict an existing one about the same thing?
+def contradicts(new_type: str, existing_type: str) -> bool:
+    # A correction always overrides whatever it is about (abc.md:118).
+    if new_type == "correction":
+        return True
+    return (new_type, existing_type) in OPPOSING
+
+
+# Count one more piece of evidence for a memory we already hold.
+def strengthen(memory_id: str, subject_id: str, source_event_ids: list[str],
+               confidence: float) -> dict:
+    """abc.md:49 - repeated evidence is what turns a guess into a durable
+    preference. Saying the same thing twice should make us more sure, not
+    create a second memory.
+    """
+    update = """
+    MATCH (m:Memory {memory_id: $memory_id, subject_id: $subject_id})
+    SET m.source_event_ids = apoc_free_union,
+        m.evidence_count   = size(apoc_free_union),
+        m.confidence       = CASE WHEN $confidence > m.confidence
+                                  THEN $confidence ELSE m.confidence END,
+        m.graph_version    = m.graph_version + 1
+    RETURN m.memory_id AS memory_id, m.graph_version AS graph_version,
+           m.evidence_count AS evidence_count, m.status AS status
+    """
+    with driver().session() as session:
+        existing = session.run(
+            "MATCH (m:Memory {memory_id: $memory_id, subject_id: $subject_id}) "
+            "RETURN m.source_event_ids AS sources",
+            memory_id=memory_id, subject_id=subject_id,
+        ).single()
+        # Union of sources, in order, without repeats (abc.md:114 lineage).
+        merged = list(dict.fromkeys([*(existing["sources"] or []), *source_event_ids]))
+
+        record = session.run(
+            update.replace("apoc_free_union", "$sources"),
+            memory_id=memory_id, subject_id=subject_id,
+            sources=merged, confidence=confidence,
+        ).single()
+    return dict(record)
+
+
+# Mark every memory whose retention period has passed as expired.
+def expire_memories(subject_id: str | None = None) -> int:
+    """abc.md:118 requires expiry; abc.md:133 excludes expired memories.
+
+    Storing expires_at is not enough - something has to act on it. The node
+    is not deleted, only marked, so audit history survives (abc.md:118 -
+    "without erasing audit history prematurely").
+    """
+    where_subject = "AND m.subject_id = $subject_id" if subject_id else ""
+    update = f"""
+    MATCH (m:Memory {{status: 'active'}})
+    WHERE m.expires_at < datetime() {where_subject}
+    SET m.status = 'expired', m.valid_to = m.expires_at,
+        m.graph_version = m.graph_version + 1
+    RETURN count(m) AS expired
+    """
+    with driver().session() as session:
+        record = session.run(update, subject_id=subject_id).single()
+    return record["expired"]
