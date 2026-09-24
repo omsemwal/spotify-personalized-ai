@@ -298,6 +298,59 @@ without spending anything.
 
 ---
 
+## 8b. The functions this API uses
+
+Names and why, not code.
+
+**`memory/api.py`**
+
+| Function | Why it exists |
+|---|---|
+| `extract_memories()` | The endpoint: checks access, reads the event, asks the model, applies our rules |
+
+**`memory/model_client.py`**
+
+| Function | Why it exists |
+|---|---|
+| `propose_candidates()` | Asks the model what memories this event suggests; the only place a provider is called |
+| `is_configured()` | Says whether a key is present, so a missing key is a clear error not a crash |
+
+**`memory/extraction.py`** - the rules
+
+| Function | Why it exists |
+|---|---|
+| `validate()` | The six checks deciding whether one proposal is acceptable; returns the reason when not |
+| `looks_sensitive()` | Blocks mood, health, religion, politics and the rest from ever being stored |
+| `extract()` | Runs every proposal through validate, then deduplicates what survives |
+
+**`memory/entities.py`** - names to ids
+
+| Function | Why it exists |
+|---|---|
+| `normalise()` | Strips case, accents and punctuation so "Beyonce!" and "beyonce" match |
+| `alias_table()` | Loads the catalog once into one lookup of every spelling |
+| `resolve()` | Turns one written name into a catalog id, or leaves it unresolved |
+| `resolve_all()` | Resolves a list, collapsing spellings of the same thing |
+| `similarity()` | Scores a near miss, so small typos still match |
+
+**`memory/dedup.py`**
+
+| Function | Why it exists |
+|---|---|
+| `signature()` | What makes two memories "the same": type plus resolved entities |
+| `merge()` | Folds a duplicate in, keeping every source event id |
+| `deduplicate()` | Collapses the list so each distinct thing appears once |
+
+**`memory/policy.py`**
+
+| Function | Why it exists |
+|---|---|
+| `registry()` | Loads the policy YAML and checks every memory type is covered |
+| `classify()` | Stamps a memory with its sensitivity, retention and expiry |
+| `may_surface()` | Is this kind of memory allowed on this surface? |
+
+---
+
 ## 9. Tests
 
 ```

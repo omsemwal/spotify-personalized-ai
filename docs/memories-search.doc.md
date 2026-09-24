@@ -218,6 +218,41 @@ paused memory since the fact was stored gets nothing back.
 
 ---
 
+## 8b. The functions this API uses
+
+Names and why, not code.
+
+**`memory/api.py`**
+
+| Function | Why it exists |
+|---|---|
+| `search_memories()` | The endpoint: checks access and consent, then hands off to retrieval |
+
+**`memory/retrieval.py`** - all the logic for this API
+
+| Function | Why it exists |
+|---|---|
+| `graph_candidates()` | Finds memories attached to an entity the listener actually named |
+| `vector_candidates()` | Finds memories that mean something similar, even with no shared words |
+| `recency_score()` | Newer memories count for more, fading to zero over a year |
+| `repetition_score()` | Something said three times is stronger than something said once |
+| `rank_one()` | Combines the six weighted signals into one score, and keeps the breakdown |
+| `allowed_on_surface()` | Drops memories this surface may not show, with the reason |
+| `apply_diversity()` | Stops one entity filling the results - ten memories about one artist is one fact |
+| `search()` | Runs both searches, merges, ranks, filters, returns |
+
+**Reused from earlier APIs**
+
+| Function | Why it is used here |
+|---|---|
+| `embeddings.search()` | The semantic half of the hybrid |
+| `graph.get_memory()` | Fills in details for anything the vector search found |
+| `policy.may_surface()` | The surface rule each memory type carries |
+| `db.negative_feedback()` | Memory ids the listener marked unhelpful |
+| `auth.bind_subject()` | The same cross-subject check as every other endpoint |
+
+---
+
 ## 9. Done
 
 | Requirement | Line |

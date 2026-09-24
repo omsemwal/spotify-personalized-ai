@@ -283,6 +283,46 @@ same check as extraction. It must not be a way around `abc.md:53`.
 
 ---
 
+## 11b. The functions this API uses
+
+Names and why, not code.
+
+**`memory/api.py`**
+
+| Function | Why it exists |
+|---|---|
+| `create_memory()` | The endpoint: resolves, stamps policy, looks for a clash, then stores |
+
+**`memory/graph.py`** - Neo4j
+
+| Function | Why it exists |
+|---|---|
+| `driver()` | Opens the connection once and reuses it |
+| `ensure_constraints()` | Uniqueness rules, so a retry cannot create two nodes for one memory |
+| `new_memory_id()` | Ids are computed by us; the model is never allowed to invent one |
+| `create_memory()` | Writes the memory node and links it to its entities |
+| `get_memory()` | Reads one back - with the subject in the query, so an id alone is not enough |
+| `list_memories()` | A subject's active memories, newest first |
+| `supersede()` | Closes an old fact and links the new one to it, instead of overwriting |
+| `find_about()` | Finds existing memories about exactly these entities - the contradiction lookup |
+| `contradicts()` | Decides whether two memory types can both be true at once |
+| `strengthen()` | Counts one more piece of evidence instead of storing a duplicate |
+| `expire_memories()` | Marks memories past their retention date, without deleting them |
+| `delete_memories()` | Removes a subject's memories; used by deletion and by tests |
+
+**`memory/embeddings.py`**
+
+| Function | Why it exists |
+|---|---|
+| `model()` | Loads the embedding model once, on first use |
+| `embed()` | Turns a sentence into 384 numbers |
+| `approved_text()` | Picks only the fields allowed to be embedded - the fact, nothing else |
+| `ensure_index()` | Creates the vector index Neo4j needs to search quickly |
+| `store_for_memory()` | Writes the numbers onto the memory node, so they share its id |
+| `search()` | Finds this subject's memories closest in meaning to some text |
+
+---
+
 ## 12. Done
 
 | Requirement | Line |

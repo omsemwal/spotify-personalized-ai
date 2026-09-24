@@ -157,6 +157,63 @@ leakage, which `abc.md` scoring makes pass/fail.
 
 ---
 
+## 6b. The functions this API uses
+
+Names and why, not code. Full code is in the files named.
+
+**`memory/api.py`**
+
+| Function | Why it exists |
+|---|---|
+| `create_event()` | The endpoint itself: runs the seven checks in order, then stores |
+| `deny()` | One place to refuse a request and record why, so no rejection goes unlogged |
+
+**`memory/auth.py`**
+
+| Function | Why it exists |
+|---|---|
+| `mint_token()` | Stamps a token for one subject; the gateway does this in production |
+| `authenticate()` | Checks the stamp and reads the subject out of the token |
+| `bind_subject()` | Refuses when the token's subject differs from the body's - the cross-subject check |
+
+**`memory/db.py`** (PostgreSQL)
+
+| Function | Why it exists |
+|---|---|
+| `connect()` | Borrows a pooled connection; a fresh one per request was 5x slower |
+| `get_consent()` | Reads OUR consent record, so a caller cannot claim consent it does not have |
+| `save_event()` | Writes the accepted event with its own expiry date |
+| `get_event()` | Reads one back, subject-scoped, for extraction |
+| `record_audit()` | Writes who did what with what outcome - identifiers only, never content |
+| `delete_expired_events()` | Acts on expires_at; storing the date does nothing on its own |
+| `ingestion_metrics()` | Counts for the Overview screen, derived from the audit trail |
+
+**`memory/cache.py`** (Redis)
+
+| Function | Why it exists |
+|---|---|
+| `get_event_id()` | Have we seen this idempotency key before, for this subject? |
+| `remember()` | Records the key for 24 hours, so Redis forgets it by itself |
+| `is_rate_limited()` | One self-expiring counter per subject per minute |
+
+**`memory/errors.py`**
+
+| Function | Why it exists |
+|---|---|
+| `add_correlation_id()` | Gives every request a tracking number and echoes it back |
+| `error()` | One shape for every error body, so callers parse one thing |
+| `handle_validation_error()` | Gives bad input a stable code, naming the field without repeating the value |
+
+**`memory/config.py`**
+
+| Function | Why it exists |
+|---|---|
+| `postgres_url()` / `redis_url()` | Builds a connection string from the pieces in .env |
+| `redis_key()` | Prefixes every key, so this app cannot collide with another on the same Redis |
+| `safe()` | Masks the password when a URL is printed or logged |
+
+---
+
 ## 7. Tests
 
 ```
