@@ -87,9 +87,15 @@ def test_search_memories():
 
 
 def test_compose_context():
-    r = client.post("/v1/context/compose", json={"subject_id": "user_001"}, headers=AUTH)
+    # Now a typed request. See tests/test_compose_api.py for the package
+    # shape, the budget, and the prompt-injection defences.
+    r = client.post(
+        "/v1/context/compose",
+        json={"subject_id": "user_001", "intent": "something while I work"},
+        headers=AUTH,
+    )
     assert r.status_code == 200
-    assert "context" in r.json()
+    assert "context_block" in r.json()
 
 
 # --- Correction and deletion ---------------------------------------------

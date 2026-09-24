@@ -128,6 +128,76 @@ class MemoryCreated(BaseModel):
     superseded: str | None = None
 
 
+class ComposeRequest(BaseModel):
+    """What POST /v1/context/compose accepts.
+
+    abc.md:311 - "Apply policy and build the context package consumed by
+    an AI orchestrator."
+    """
+
+    subject_id: str = Field(min_length=1)
+    intent: str = Field(min_length=1, max_length=500)
+    surface: Literal["chat", "player", "search"] = "chat"
+    locale: str = "en-US"
+
+    # How much room the orchestrator has for memory. Applied here, because
+    # only here do we know what the package looks like (abc.md:125).
+    token_budget: int = Field(default=500, ge=50, le=4000)
+
+
+class ContextItem(BaseModel):
+    """One memory inside the package.
+
+    abc.md:132 - "memory identifier, fact, type, confidence, time, source
+    class, and relevance reason."
+    """
+
+    memory_id: str
+    fact: str
+    memory_type: str
+    confidence: float
+
+    # "stated" when the listener said it, "observed" when we inferred it.
+    # An orchestrator needs that distinction; it does not need event ids.
+    source_class: str
+
+    # Why this one was included, in one line.
+    relevance_reason: str
+
+    evidence_count: int = 1
+
+
+class ContextPackage(BaseModel):
+    """What POST /v1/context/compose returns."""
+
+    # abc.md:135 - an explicit no-memory answer, never a silent empty pack.
+    no_memory: bool
+    reason: str
+
+    # The text an orchestrator puts in its prompt. Memory text is fenced
+    # and labelled as data (abc.md:134).
+    context_block: str
+
+    # The same memories as structured objects, so a careful caller can use
+    # them without touching the rendered text at all.
+    items: list[ContextItem] = Field(default_factory=list)
+
+    # What was found and then dropped, and why (abc.md:133).
+    removed: list[str] = Field(default_factory=list)
+
+    token_estimate: int
+
+    # The fence markers used in this package. They carry a random suffix
+    # per request, so a caller must be told what to look for. Empty on a
+    # no-memory package, which has no data block.
+    fence_open: str = ""
+    fence_close: str = ""
+
+    # abc.md:135 - "record which memories influenced each response". The
+    # trace id ties the package to the audit trail.
+    trace_id: str
+
+
 class SearchRequest(BaseModel):
     """What POST /v1/memories/search accepts.
 

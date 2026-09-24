@@ -15,6 +15,7 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from memory import (
     cache,
+    composer,
     db,
     embeddings,
     entities as entity_resolver,
@@ -36,6 +37,8 @@ from memory.models import (
     MemoryCreated,
     SearchRequest,
     SearchResult,
+    ComposeRequest,
+    ContextPackage,
 )
 
 app = FastAPI(
@@ -426,10 +429,76 @@ def search_memories(
     return SearchResult(**found, trace_id=trace_id)
 
 
-@app.post("/v1/context/compose")
-def compose_context(body: dict, caller: Caller = Depends(authenticate)):
-    """5. Apply policy and build the context package for the AI orchestrator."""
-    return {"context": "", "included": [], "trace_id": "trc_stub"}
+@app.post("/v1/context/compose", response_model=ContextPackage)
+def compose_context(
+    request: ComposeRequest,
+    background: BackgroundTasks,
+    caller: Caller = Depends(authenticate),
+):
+    """5. Apply policy and build the context package for the AI orchestrator.
+
+    abc.md:311 - the last step before a listener sees anything. Finds the
+    relevant memories, drops what must not be used, fits the budget, and
+    hands back a package whose memory text is fenced as data
+    (abc.md:134).
+    """
+    bind_subject(caller, request.subject_id)
+    trace_id = errors.correlation_id.get()
+
+    # Refuse and record why.
+    def deny(status: int, code: str, message: str) -> HTTPException:
+        db.record_audit(
+            action="compose.rejected",
+            subject_id=request.subject_id,
+            service_id=caller.service_id,
+            outcome="rejected",
+            correlation_id=trace_id,
+            reason=code,
+        )
+        return HTTPException(status_code=status, detail=errors.error(code, message))
+
+    if cache.is_rate_limited(request.subject_id):
+        raise deny(429, errors.RATE_LIMITED, "too many requests this minute")
+
+    # abc.md:53 - consent is enforced before memory reaches retrieval.
+    # A paused listener gets the no-memory package, not an error: the
+    # experience must carry on without memory (abc.md:158).
+    consent = db.get_consent(request.subject_id)
+    if consent != "granted":
+        package = composer.compose([], request.surface, request.token_budget,
+                                   trace_id, healthy=False)
+        package.reason = f"consent is {consent}"
+        return package
+
+    found = retrieval.search(
+        subject_id=request.subject_id,
+        intent=request.intent,
+        surface=request.surface,
+        limit=request.token_budget // 50,   # a rough ceiling; the budget decides
+        negative=db.negative_feedback(request.subject_id),
+    )
+
+    package = composer.compose(
+        memories=found["results"],
+        surface=request.surface,
+        token_budget=request.token_budget,
+        trace_id=trace_id,
+    )
+    # Anything retrieval dropped is part of the same story.
+    package.removed = found["removed"] + package.removed
+
+    # abc.md:135 - "record which memories influenced each response".
+    background.add_task(
+        db.record_audit,
+        action="compose.completed",
+        subject_id=request.subject_id,
+        service_id=caller.service_id,
+        outcome="no_memory" if package.no_memory else "composed",
+        correlation_id=trace_id,
+        memory_id=",".join(i.memory_id for i in package.items) or None,
+    )
+
+    return package
 
 
 # --- Correction and deletion ---------------------------------------------
