@@ -318,3 +318,23 @@ def expire_memories(subject_id: str | None = None) -> int:
     with driver().session() as session:
         record = session.run(update, subject_id=subject_id).single()
     return record["expired"]
+
+
+# Mark one memory expired now, whatever its retention date said.
+def expire_one(memory_id: str, subject_id: str) -> dict | None:
+    """abc.md:313 - PATCH may "expire" a memory.
+
+    Marked, not deleted: abc.md:118 warns against erasing audit history.
+    """
+    with driver().session() as session:
+        record = session.run(
+            """
+            MATCH (m:Memory {memory_id: $memory_id, subject_id: $subject_id})
+            SET m.status = 'expired', m.valid_to = datetime(),
+                m.graph_version = m.graph_version + 1
+            RETURN m.memory_id AS memory_id, m.graph_version AS graph_version,
+                   m.status AS status
+            """,
+            memory_id=memory_id, subject_id=subject_id,
+        ).single()
+    return dict(record) if record else None

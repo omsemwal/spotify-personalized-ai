@@ -17,6 +17,7 @@ from memory import (
     cache,
     composer,
     db,
+    deletion,
     embeddings,
     entities as entity_resolver,
     errors,
@@ -40,6 +41,10 @@ from memory.models import (
     SearchResult,
     ComposeRequest,
     ContextPackage,
+    PatchMemoryRequest,
+    MemoryUpdated,
+    DeletionAccepted,
+    DeletionStatus,
 )
 
 app = FastAPI(
@@ -514,28 +519,192 @@ def compose_context(
 
 # --- Correction and deletion ---------------------------------------------
 
-@app.patch("/v1/memories/{memory_id}")
+@app.patch("/v1/memories/{memory_id}", response_model=MemoryUpdated)
 def update_memory(
-    memory_id: str, body: dict, caller: Caller = Depends(authenticate)
+    memory_id: str,
+    request: PatchMemoryRequest,
+    background: BackgroundTasks,
+    caller: Caller = Depends(authenticate),
 ):
-    """6. Correct, supersede, or expire an eligible memory."""
-    return {"memory_id": memory_id, "graph_version": 2, "superseded": True}
+    """6. Correct, supersede, or expire an eligible memory.
+
+    abc.md:313 - "under optimistic concurrency": the caller says which
+    version they last saw, and the request is refused if the memory has
+    changed since. Two people editing at once cannot silently overwrite
+    each other.
+    """
+    bind_subject(caller, request.subject_id)
+    trace_id = errors.correlation_id.get()
+
+    # Refuse and record why.
+    def deny(status: int, code: str, message: str) -> HTTPException:
+        db.record_audit(
+            action="memory.update_rejected",
+            subject_id=request.subject_id,
+            service_id=caller.service_id,
+            outcome="rejected",
+            correlation_id=trace_id,
+            reason=code,
+            memory_id=memory_id,
+        )
+        return HTTPException(status_code=status, detail=errors.error(code, message))
+
+    if cache.is_rate_limited(request.subject_id):
+        raise deny(429, errors.RATE_LIMITED, "too many requests this minute")
+
+    # Subject-scoped read: a memory id alone is not enough.
+    existing = graph.get_memory(memory_id, request.subject_id)
+    if existing is None:
+        raise deny(404, errors.NOT_FOUND, "no such memory for this subject")
+
+    # abc.md:313 - optimistic concurrency. The memory changed under them.
+    if existing["graph_version"] != request.expected_version:
+        raise deny(
+            409,
+            errors.CONFLICT,
+            f"memory is at version {existing['graph_version']}, "
+            f"not {request.expected_version}",
+        )
+
+    if request.operation == "expire":
+        updated = graph.expire_one(memory_id, request.subject_id)
+        result = MemoryUpdated(
+            memory_id=updated["memory_id"],
+            graph_version=updated["graph_version"],
+            status=updated["status"],
+        )
+
+    else:  # correct
+        if not (request.fact or "").strip():
+            raise deny(422, errors.VALIDATION_FAILED, "a correction needs a fact")
+
+        # The same sensitivity block as everywhere else (abc.md:53).
+        if extraction.looks_sensitive(request.fact):
+            raise deny(403, errors.CONSENT_DENIED,
+                       "sensitive inference is not storable")
+
+        resolved = entity_resolver.resolve_all(request.entities)
+        candidate = {
+            "memory_type": "correction",
+            "fact": request.fact,
+            "confidence": request.confidence,
+            "entities": [e.model_dump() for e in resolved],
+            "policy": policy.classify("correction").model_dump(mode="json"),
+            "source_event_ids": existing.get("source_event_ids", []),
+            "evidence_count": 1,
+        }
+
+        # abc.md:118 - a correction supersedes; it never overwrites.
+        created = graph.supersede(memory_id, request.subject_id, candidate)
+        background.add_task(
+            embeddings.store_for_memory,
+            created["memory_id"], request.subject_id, request.fact,
+        )
+        result = MemoryUpdated(
+            memory_id=created["memory_id"],
+            graph_version=created["graph_version"],
+            status="active",
+            superseded=memory_id,
+        )
+
+    background.add_task(
+        db.record_audit,
+        action=f"memory.{request.operation}",
+        subject_id=request.subject_id,
+        service_id=caller.service_id,
+        outcome="updated",
+        correlation_id=trace_id,
+        memory_id=result.memory_id,
+    )
+    return result
 
 
-@app.delete("/v1/memories/{memory_id}")
-def delete_memory(memory_id: str, caller: Caller = Depends(authenticate)):
-    """7. Start cross-store deletion and return a traceable job id."""
-    return {"job_id": "job_stub", "memory_id": memory_id, "status": "accepted"}
+@app.delete("/v1/memories/{memory_id}", response_model=DeletionAccepted)
+def delete_memory(
+    memory_id: str,
+    subject_id: str,
+    background: BackgroundTasks,
+    caller: Caller = Depends(authenticate),
+):
+    """7. Start cross-store deletion and return a traceable job id.
+
+    abc.md:315 - the work happens afterwards; this returns the receipt.
+    abc.md:97 - retrieval eligibility is revoked immediately, so the
+    memory stops being usable before any store has actually cleared.
+    """
+    bind_subject(caller, subject_id)
+    trace_id = errors.correlation_id.get()
+
+    existing = graph.get_memory(memory_id, subject_id)
+    if existing is None:
+        db.record_audit(
+            action="memory.delete_rejected", subject_id=subject_id,
+            service_id=caller.service_id, outcome="rejected",
+            correlation_id=trace_id, reason=errors.NOT_FOUND,
+            memory_id=memory_id,
+        )
+        raise HTTPException(
+            status_code=404,
+            detail=errors.error(errors.NOT_FOUND,
+                                "no such memory for this subject"),
+        )
+
+    # abc.md:97 - revoke first. Even if a store is slow, the memory is
+    # already unusable.
+    deletion.revoke_eligibility(memory_id, subject_id)
+
+    job_id = deletion.create_job(subject_id, memory_id)
+
+    # The stores are cleared after the reply. abc.md:322 - asynchronous
+    # work returns a job state.
+    background.add_task(deletion.run_job, job_id, subject_id, memory_id)
+
+    background.add_task(
+        db.record_audit,
+        action="memory.deleted",
+        subject_id=subject_id,
+        service_id=caller.service_id,
+        outcome="accepted",
+        correlation_id=trace_id,
+        memory_id=memory_id,
+    )
+    return DeletionAccepted(job_id=job_id, memory_id=memory_id)
 
 
-@app.get("/v1/deletions/{job_id}")
-def get_deletion(job_id: str, caller: Caller = Depends(authenticate)):
-    """8. Report deletion status across every store."""
-    return {
-        "job_id": job_id,
-        "status": "pending",
-        "stores": {"graph": "pending", "vector": "pending", "cache": "pending"},
-    }
+@app.get("/v1/deletions/{job_id}", response_model=DeletionStatus)
+def get_deletion(
+    job_id: str, subject_id: str, caller: Caller = Depends(authenticate)
+):
+    """8. Report deletion status across every store.
+
+    abc.md:317 - "Report graph, vector, cache, operational-store, and
+    backup-policy status." One line per store, so a partial failure is
+    visible rather than hidden behind a single flag.
+    """
+    bind_subject(caller, subject_id)
+
+    job = deletion.get_job(job_id, subject_id)
+    if job is None:
+        raise HTTPException(
+            status_code=404,
+            detail=errors.error(errors.NOT_FOUND, "no such job for this subject"),
+        )
+
+    return DeletionStatus(
+        job_id=job["job_id"],
+        memory_id=job["memory_id"],
+        status=job["status"],
+        stores={
+            "graph": job["graph_status"],
+            "vector": job["vector_status"],
+            "cache": job["cache_status"],
+            "operational": job["operational_status"],
+            "backup": job["backup_status"],
+        },
+        requested_at=job["requested_at"],
+        completed_at=job["completed_at"],
+        error=job["error"],
+    )
 
 
 # --- Feedback and explainability -----------------------------------------

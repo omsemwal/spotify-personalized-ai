@@ -128,6 +128,70 @@ class MemoryCreated(BaseModel):
     superseded: str | None = None
 
 
+class PatchMemoryRequest(BaseModel):
+    """What PATCH /v1/memories/{memory_id} accepts.
+
+    abc.md:313 - "Correct, supersede, expire, or change an eligible memory
+    under optimistic concurrency."
+    """
+
+    subject_id: str = Field(min_length=1)
+
+    # What to do. A correction replaces the memory with a new fact and
+    # keeps the old one as history; expire just closes it.
+    operation: Literal["correct", "expire"]
+
+    # The version the caller last saw. If the memory has changed since,
+    # the request is refused rather than silently overwriting somebody
+    # else's edit - that is what "optimistic concurrency" means.
+    expected_version: int = Field(ge=1)
+
+    # Required for a correction, ignored for an expiry.
+    fact: str | None = Field(default=None, max_length=500)
+    entities: list[str] = Field(default_factory=list)
+    confidence: float = Field(default=1.0, ge=0.0, le=1.0)
+
+
+class MemoryUpdated(BaseModel):
+    """What PATCH /v1/memories/{memory_id} returns."""
+
+    memory_id: str
+    graph_version: int
+    status: str
+
+    # Set when a correction replaced an older memory.
+    superseded: str | None = None
+
+
+class DeletionAccepted(BaseModel):
+    """What DELETE /v1/memories/{memory_id} returns.
+
+    abc.md:315 - "Start cross-store deletion and return a traceable job
+    identifier." The work happens afterwards; this is the receipt.
+    """
+
+    job_id: str
+    memory_id: str
+    status: str = "accepted"
+
+
+class DeletionStatus(BaseModel):
+    """What GET /v1/deletions/{job_id} returns.
+
+    abc.md:317 - "Report graph, vector, cache, operational-store, and
+    backup-policy status." One field per store, because a partial failure
+    must be visible rather than hidden behind a single flag.
+    """
+
+    job_id: str
+    memory_id: str
+    status: str
+    stores: dict[str, str]
+    requested_at: datetime
+    completed_at: datetime | None = None
+    error: str | None = None
+
+
 class ComposeRequest(BaseModel):
     """What POST /v1/context/compose accepts.
 

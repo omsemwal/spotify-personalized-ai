@@ -101,21 +101,31 @@ def test_compose_context():
 # --- Correction and deletion ---------------------------------------------
 
 def test_update_memory():
-    r = client.patch("/v1/memories/mem_1", json={"statement": "corrected"}, headers=AUTH)
-    assert r.status_code == 200
-    assert r.json()["memory_id"] == "mem_1"
+    # Now typed, and needs a real memory. See tests/test_correct_delete_api.py
+    # for optimistic concurrency, correcting and expiring.
+    r = client.patch(
+        "/v1/memories/mem_does_not_exist",
+        json={"subject_id": "user_001", "operation": "expire",
+              "expected_version": 1},
+        headers=AUTH,
+    )
+    assert r.status_code == 404
+    assert r.json()["detail"]["code"] == "NOT_FOUND"
 
 
 def test_delete_memory():
-    r = client.delete("/v1/memories/mem_1", headers=AUTH)
-    assert r.status_code == 200
-    assert "job_id" in r.json()
+    # Now needs the subject and a real memory. See
+    # tests/test_correct_delete_api.py for the cross-store deletion.
+    r = client.delete(
+        "/v1/memories/mem_does_not_exist?subject_id=user_001", headers=AUTH
+    )
+    assert r.status_code == 404
 
 
 def test_get_deletion():
-    r = client.get("/v1/deletions/job_1", headers=AUTH)
-    assert r.status_code == 200
-    assert r.json()["job_id"] == "job_1"
+    # Now subject-scoped, and only real jobs exist.
+    r = client.get("/v1/deletions/job_1?subject_id=user_001", headers=AUTH)
+    assert r.status_code == 404
 
 
 # --- Feedback and explainability -----------------------------------------
