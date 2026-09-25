@@ -1,25 +1,21 @@
-# Local development stores.
+# Everything this project needs to run.
+#
+#     docker compose up -d
+#
+# Four stores, matching the defaults in .env.example, so a fresh clone
+# works without editing anything except the API key.
 #
 # abc.md:219 - PostgreSQL: "Stores consent state, ingestion status, tool
 #              audit, experiments, feedback, and deletion jobs."
 # abc.md:222 - Redis: "Short-lived subject-scoped caching, rate limiting,
 #              and idempotency support."
-#
+# abc.md:210 - Neo4j: "Temporal graph relationships, indexed traversal,
+#              provenance, and evolving user-content relationships."
 # abc.md:207 - Redpanda: "Durable event capture, partitioning, replay,
-#              backpressure, and consumer isolation." The spec names
-#              "Apache Kafka or Redpanda"; Redpanda is one container
-#              instead of a JVM stack and speaks the same protocol.
+#              backpressure, and consumer isolation." The specification
+#              says "Apache Kafka or Redpanda"; Redpanda is one container
+#              rather than a JVM stack, and speaks the same protocol.
 #
-# Neo4j and the vector index arrive with later endpoints.
-#
-# NOTE: postgres and redis below are NOT used on this machine - a local
-# PostgreSQL 18 and Redis are already installed and .env points at them.
-# The containers are kept for anyone setting up from scratch. Start only
-# what you need:
-#
-#   docker compose up -d redpanda
-#
-# Start with:  docker compose up -d
 # Stop with:   docker compose down          (data is kept)
 # Wipe with:   docker compose down -v       (deletes the volumes)
 
@@ -28,16 +24,18 @@ services:
     image: postgres:16
     container_name: memory-postgres
     environment:
-      POSTGRES_USER: memory
+      POSTGRES_USER: postgres
       POSTGRES_PASSWORD: memory_local_dev
-      POSTGRES_DB: memory
+      POSTGRES_DB: spotify_personalized_ai
     ports:
       - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
+      # Every .sql file here runs on first start, in name order, so the
+      # tables exist before the API does.
       - ./infrastructure/database-migrations:/docker-entrypoint-initdb.d:ro
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U memory -d memory"]
+      test: ["CMD-SHELL", "pg_isready -U postgres -d spotify_personalized_ai"]
       interval: 5s
       timeout: 3s
       retries: 10
@@ -53,21 +51,41 @@ services:
       timeout: 3s
       retries: 10
 
+  neo4j:
+    image: neo4j:5-community
+    container_name: memory-neo4j
+    environment:
+      NEO4J_AUTH: neo4j/neo4j_password_secure
+      # The vector index needs a little room to build.
+      NEO4J_server_memory_heap_max__size: 512M
+    ports:
+      - "7474:7474"     # the browser at http://localhost:7474
+      - "7687:7687"     # bolt, which the app connects to
+    volumes:
+      - neo4j_data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:7474 || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+
   redpanda:
     image: redpandadata/redpanda:latest
     container_name: memory-redpanda
     command:
       - redpanda
       - start
-      - --smp=1                     # one CPU core is plenty for the pilot
-      - --memory=512M               # keep it small; this machine is busy
-      - --overprovisioned           # do not expect dedicated hardware
+      - --smp=1                    # one core is plenty for a pilot
+      - --memory=512M
+      - --overprovisioned          # do not expect dedicated hardware
       - --node-id=0
-      - --kafka-addr=PLAINTEXT://0.0.0.0:9092
-      - --advertise-kafka-addr=PLAINTEXT://localhost:9092
+      # Two listeners on purpose. Other containers reach 9092 by hostname;
+      # a client on the host machine cannot resolve `redpanda`, so it uses
+      # 19092, which advertises itself as localhost.
+      - --kafka-addr=internal://0.0.0.0:9092,external://0.0.0.0:19092
+      - --advertise-kafka-addr=internal://redpanda:9092,external://localhost:19092
     ports:
-      - "9092:9092"                 # the Kafka protocol port
-      - "9644:9644"                 # admin API, used by the health check
+      - "19092:19092"
     volumes:
       - redpanda_data:/var/lib/redpanda/data
     healthcheck:
@@ -78,4 +96,5 @@ services:
 
 volumes:
   postgres_data:
+  neo4j_data:
   redpanda_data:

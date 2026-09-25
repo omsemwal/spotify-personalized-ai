@@ -1,102 +1,113 @@
 # Running this project
 
-Plain bash commands. No tooling beyond Python and Docker.
+Clone it, run four commands, open two terminals.
 
 ---
 
-## Once, the first time
+## Setup — four commands, once
 
 ```bash
-cd "C:/Users/omsem/OneDrive/Desktop/New folder/spotify-personalized-ai"
+git clone https://github.com/omsemwal/spotify-personalized-ai.git
+cd spotify-personalized-ai
 
 pip install -r requirements.txt
-```
-
-Then copy the settings template and fill it in:
-
-```bash
 cp .env.example .env
+docker compose up -d
+python scripts/setup.py
 ```
 
-Open `.env` and set:
+`docker compose up -d` starts all four stores: PostgreSQL, Redis, Neo4j and
+Redpanda. `setup.py` waits for them, creates the tables, the graph
+constraints and the vector index, and seeds the demo subjects.
 
-| Setting | What to put |
-|---|---|
-| `MEMORY_JWT_SECRET` | `python -c "import secrets; print(secrets.token_urlsafe(48))"` |
-| `POSTGRES_PASSWORD` | your local PostgreSQL password |
-| `POSTGRES_DB` | `spotify_personalized_ai` |
-| `NEO4J_PASSWORD` | `neo4j_password_secure` |
-| `GEMINI_API_KEY` | from aistudio.google.com, free tier |
+**One thing to edit.** Open `.env` and put a Gemini key on this line:
 
-**`.env` is never committed.** `.env.example` is the template; it holds no real
-values.
-
-Then create the database tables:
-
-```bash
-python - <<'EOF'
-import glob, psycopg
-from memory import config
-for path in sorted(glob.glob("infrastructure/database-migrations/*.sql")):
-    with psycopg.connect(config.postgres_url(), autocommit=True) as c:
-        c.execute(open(path, encoding="utf-8").read())
-    print("applied", path)
-EOF
 ```
+GEMINI_API_KEY=replace-me
+```
+
+Free from **aistudio.google.com** -> Get API key. Everything else in `.env`
+already matches what `docker compose` starts.
+
+Without a key the system still runs - endpoint 2 returns a clean 503, and
+the other nine work normally.
 
 ---
 
-## Every time — three steps
+## Running it — two terminals
 
-### 1. Start the stores
-
-Docker Desktop must be running first.
-
-```bash
-docker start memory_system_redis memory_system_neo4j memory_system_redpanda
-```
-
-PostgreSQL runs as a Windows service and starts on its own.
-
-### 2. Check they are all reachable
-
-```bash
-python scripts/check_stores.py
-```
-
-```
-postgres : OK - PostgreSQL 18.6
-           tables: audit_log, consent, deletion_job, feedback, ...
-redis    : OK - redis 7.4.11
-all reachable
-```
-
-If something is missing, nothing below will work — fix it here first.
-
-### 3. Start the API
+### Terminal 1 — the API
 
 ```bash
 python -m uvicorn memory.api:app --reload --port 8000
 ```
 
-Open **http://127.0.0.1:8000/docs** — every endpoint, with a Try it out button.
+```
+INFO:     Uvicorn running on http://127.0.0.1:8000
+```
 
----
+Open **http://127.0.0.1:8000/docs** - every endpoint, with a Try it out
+button.
 
-## And in a second terminal — the worker
+### Terminal 2 — the worker
 
 ```bash
 python scripts/run_processor.py --forever
 ```
 
-**Without this, events are captured but never become memories.** It reads the
-queue and runs extraction and storage on its own.
-
 ```
+processor running, Ctrl+C to stop
 handled 1, failed 0, memories stored 2
 ```
 
-Leave it running while you use the API.
+**This one matters.** It reads the queue and turns events into memories.
+Without it, events are captured and nothing ever appears in the graph -
+which looks exactly like a bug.
+
+---
+
+## Why two terminals
+
+That split is the whole architecture, not an inconvenience.
+
+```
+Terminal 1   the API      answers in milliseconds, never waits for a model
+Terminal 2   the worker   does the slow work afterwards
+```
+
+`abc.md:324` - *"Keep the user path independent of downstream graph-write
+latency."* A listener asking for music must never wait while we call a
+model and write a graph. So the API accepts the event, replies, and the
+worker picks it up from the queue.
+
+If they ran in one process, a slow model call would make the listener wait.
+
+---
+
+## Checking it works
+
+```bash
+python -m pytest -q                    # 388 tests, about 80 seconds
+python scripts/verify_endpoints.py     # all 10 endpoints vs the requirements
+```
+
+The second is the better one to watch: 62 checks, each naming the `abc.md`
+line it comes from.
+
+---
+
+## On the machine this was built on
+
+The old project's containers already hold ports 5432, 6379, 7687 and 19092,
+so `docker compose up -d` will refuse to start. Use the containers that are
+already there instead:
+
+```bash
+docker start memory_system_redis memory_system_neo4j memory_system_redpanda
+```
+
+PostgreSQL runs as a Windows service and starts on its own. `.env` already
+points at all of them.
 
 ---
 

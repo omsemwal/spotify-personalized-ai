@@ -16,28 +16,28 @@ valid-time, and is correctable and deletable.
 
 Full instructions, including troubleshooting, are in **[RUNNING.md](RUNNING.md)**.
 
-The short version:
+**Setup — four commands:**
 
 ```bash
 pip install -r requirements.txt
-cp .env.example .env                 # then fill in the values
-
-docker start memory_system_redis memory_system_neo4j memory_system_redpanda
-python scripts/check_stores.py       # are the stores reachable?
-
-python -m uvicorn memory.api:app --reload --port 8000
+cp .env.example .env                 # then add a Gemini key
+docker compose up -d                 # postgres, redis, neo4j, redpanda
+python scripts/setup.py              # tables, constraints, vector index
 ```
 
-Then open **http://127.0.0.1:8000/docs**.
-
-And in a second terminal — without this, events are captured but never become
-memories:
+**Then two terminals:**
 
 ```bash
+# 1 - the API
+python -m uvicorn memory.api:app --reload --port 8000
+
+# 2 - the worker, which turns events into memories
 python scripts/run_processor.py --forever
 ```
 
-To check everything works:
+Open **http://127.0.0.1:8000/docs**.
+
+**To check it works:**
 
 ```bash
 python -m pytest -q                  # 388 tests
