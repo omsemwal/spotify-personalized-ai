@@ -12,6 +12,40 @@ valid-time, and is correctable and deletable.
 
 ---
 
+## Running it
+
+Full instructions, including troubleshooting, are in **[RUNNING.md](RUNNING.md)**.
+
+The short version:
+
+```bash
+pip install -r requirements.txt
+cp .env.example .env                 # then fill in the values
+
+docker start memory_system_redis memory_system_neo4j memory_system_redpanda
+python scripts/check_stores.py       # are the stores reachable?
+
+python -m uvicorn memory.api:app --reload --port 8000
+```
+
+Then open **http://127.0.0.1:8000/docs**.
+
+And in a second terminal — without this, events are captured but never become
+memories:
+
+```bash
+python scripts/run_processor.py --forever
+```
+
+To check everything works:
+
+```bash
+python -m pytest -q                  # 388 tests
+python scripts/verify_endpoints.py   # all 10 endpoints against the requirements
+```
+
+---
+
 ## Deployed application
 
 **Not yet deployed.** The system runs locally via `docker-compose` plus the six
