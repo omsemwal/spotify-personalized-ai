@@ -133,6 +133,64 @@ Everything is rejected before anything is stored, per `abc.md:110`.
 
 ---
 
+## 5b. Call flow — what actually runs, in order
+
+Follow this and you have followed the request.
+
+```
+POST /v1/events
+  │
+  ├─1 errors.add_correlation_id()            memory/errors.py
+  │     gives the request a tracking number, echoed back in the response
+  │
+  ├─2 auth.authenticate()                    memory/auth.py     [Depends]
+  │     checks the token stamp, reads the subject out of it        -> 401
+  │
+  ├─3 Event model validation                 memory/models.py   [FastAPI]
+  │     builds an Event from the JSON; fails if a field is wrong   -> 422
+  │
+  └─4 api.create_event()                     memory/api.py
+        │
+        ├─ auth.bind_subject()               memory/auth.py
+        │    token's subject must equal the body's subject         -> 403
+        │
+        ├─ cache.is_rate_limited()           memory/cache.py
+        │    counts this minute's calls  ──────────────────► REDIS  -> 429
+        │
+        ├─ (schema_version check, inline)                          -> 400
+        │
+        ├─ db.get_consent()                  memory/db.py
+        │    reads OUR consent record   ──────────────────► POSTGRES -> 403
+        │
+        ├─ cache.get_event_id()              memory/cache.py
+        │    seen this idempotency key?  ──────────────────► REDIS
+        │      if yes: return the first event_id, store nothing    -> 200
+        │
+        ├─ db.save_event()                   memory/db.py
+        │    writes the event + its expiry ────────────────► POSTGRES
+        │
+        ├─ cache.remember()                  memory/cache.py
+        │    records the key for 24h    ──────────────────► REDIS
+        │
+        ├─ [background] queue.publish()      memory/queue.py
+        │    hands the event id to the worker ─────────────► REDPANDA
+        │
+        └─ [background] db.record_audit()    memory/db.py
+             writes what happened      ──────────────────► POSTGRES
+
+  response: {"event_id": "evt_...", "accepted": true, "duplicate": false}
+            header: X-Correlation-Id
+```
+
+**Everything marked `[background]` happens after the reply is sent**, so the
+listener never waits for it (`abc.md:324`).
+
+**Steps 1–3 run before your code.** The middleware and `Depends(...)` are
+wired in when the app starts, which is why a 401 beats a 422: the token is
+checked before the body is even parsed.
+
+---
+
 ## 6. Files
 
 | File | Job |

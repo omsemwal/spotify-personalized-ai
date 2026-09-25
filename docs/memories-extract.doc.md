@@ -277,6 +277,65 @@ matters.
 
 ---
 
+## 7d. Call flow — what actually runs, in order
+
+```
+POST /v1/memories/extract
+  │
+  ├─1 errors.add_correlation_id()          memory/errors.py
+  ├─2 auth.authenticate()                  memory/auth.py        -> 401
+  ├─3 ExtractRequest validation            memory/models.py      -> 422
+  │
+  └─4 api.extract_memories()               memory/api.py
+        │
+        ├─ auth.bind_subject()             memory/auth.py        -> 403
+        │
+        ├─ cache.is_rate_limited()         memory/cache.py
+        │                                ──────────────► REDIS   -> 429
+        │
+        ├─ db.get_consent()                memory/db.py
+        │    consent may have changed since capture
+        │                                ──────────────► POSTGRES -> 403
+        │
+        ├─ db.get_event()                  memory/db.py
+        │    reads the event, subject-scoped
+        │                                ──────────────► POSTGRES -> 404
+        │
+        ├─ model_client.propose_candidates()   memory/model_client.py
+        │    builds the fenced prompt and asks the model
+        │                                ──────────────► GEMINI   -> 503
+        │
+        ├─ extraction.extract()            memory/extraction.py
+        │     │
+        │     ├─ for each proposal: extraction.validate()
+        │     │      │  the six rules that decide if it is acceptable
+        │     │      │
+        │     │      ├─ extraction.looks_sensitive()
+        │     │      │     blocks mood, health, religion, politics
+        │     │      │
+        │     │      ├─ entities.resolve_all()      memory/entities.py
+        │     │      │     names to catalog ids ───► data/catalog.yaml
+        │     │      │
+        │     │      └─ policy.classify()           memory/policy.py
+        │     │            sensitivity, retention ─► data/policy_registry.yaml
+        │     │
+        │     └─ dedup.deduplicate()       memory/dedup.py
+        │            collapses equivalent statements, keeps every source
+        │
+        └─ [background] db.record_audit()  memory/db.py
+                                         ──────────────► POSTGRES
+
+  response: {"candidates": [...], "no_memory": false, "rejected": [...]}
+```
+
+**Nothing is stored here.** Extraction decides; storing is endpoint 3.
+
+**The model is called once, and never trusted.** Everything it returns
+passes through `validate()`, and what fails comes back in `rejected` with
+the reason.
+
+---
+
 ## 8. Files
 
 | File | Job |

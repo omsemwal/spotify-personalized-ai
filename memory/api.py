@@ -24,6 +24,7 @@ from memory import (
     graph,
     model_client,
     policy,
+    queue,
     retrieval,
 )
 from memory.auth import Caller, authenticate, bind_subject
@@ -162,6 +163,16 @@ def create_event(
     # which is recoverable. The other order would lose the event entirely.
     db.save_event(event_id, event.model_dump(mode="json"), caller.service_id)
     cache.remember(event.subject_id, event.idempotency_key, event_id)
+
+    # abc.md:187 - "Accepted events enter a durable queue so graph
+    # processing does not block the experience." The memory processor
+    # picks it up from there; the listener does not wait for any of it.
+    background.add_task(
+        queue.publish,
+        event_id,
+        event.subject_id,
+        errors.correlation_id.get(),
+    )
 
     # The audit line is written after the reply is sent, so the caller does
     # not wait for it (abc.md:324 - "Keep the user path independent of

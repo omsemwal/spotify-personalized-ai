@@ -270,6 +270,71 @@ same check as extraction. It must not be a way around `abc.md:53`.
 
 ---
 
+## 10b. Call flow — what actually runs, in order
+
+```
+POST /v1/memories
+  │
+  ├─1 errors.add_correlation_id()          memory/errors.py
+  ├─2 auth.authenticate()                  memory/auth.py        -> 401
+  ├─3 CreateMemoryRequest validation       memory/models.py      -> 422
+  │
+  └─4 api.create_memory()                  memory/api.py
+        │
+        ├─ auth.bind_subject()             memory/auth.py        -> 403
+        ├─ cache.is_rate_limited()  ──────────────► REDIS        -> 429
+        ├─ db.get_consent()         ──────────────► POSTGRES     -> 403
+        │
+        ├─ extraction.looks_sensitive()    memory/extraction.py
+        │    no back door around abc.md:53                       -> 403
+        │
+        ├─ entities.resolve_all()          memory/entities.py
+        │    names to catalog ids   ──────────────► data/catalog.yaml
+        │
+        ├─ policy.classify()               memory/policy.py
+        │    retention + surfaces   ──────────────► data/policy_registry.yaml
+        │
+        ├─ IF the caller named a memory to replace:
+        │    ├─ graph.get_memory()   ──────────────► NEO4J       -> 404
+        │    └─ graph.supersede()    ──────────────► NEO4J
+        │
+        ├─ ELSE look for a clash ourselves:
+        │    ├─ graph.find_about()         memory/graph.py
+        │    │     memories about exactly these entities
+        │    │                      ──────────────► NEO4J
+        │    │
+        │    ├─ graph.contradicts()        memory/graph.py
+        │    │     can these two types both be true?
+        │    │
+        │    ├─ IF contradiction  -> graph.supersede()   ──► NEO4J
+        │    │      closes the old fact, links the new one to it
+        │    │
+        │    ├─ ELIF same thing   -> graph.strengthen()  ──► NEO4J
+        │    │      evidence_count + 1, no second memory
+        │    │
+        │    └─ ELSE             -> graph.create_memory() ──► NEO4J
+        │           new node, linked to its entities
+        │
+        ├─ [background] embeddings.store_for_memory()  memory/embeddings.py
+        │     │  embeds the fact and writes it onto the same node
+        │     ├─ embeddings.embed()   ──────────────► SentenceTransformers
+        │     └─                      ──────────────► NEO4J
+        │
+        └─ [background] db.record_audit()  ──────────► POSTGRES
+
+  response: {"memory_id": "mem_...", "graph_version": 1,
+             "policy_state": "normal", "superseded": null}
+```
+
+**The three-way branch is the heart of this endpoint.** A new memory is
+either a contradiction (close the old one), a repeat (strengthen the
+existing one), or genuinely new.
+
+**The embedding is written onto the same node**, so graph and vector share
+an id by construction rather than by bookkeeping.
+
+---
+
 ## 11. Files
 
 | File | Job |

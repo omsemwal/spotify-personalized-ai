@@ -206,6 +206,68 @@ paused memory since the fact was stored gets nothing back.
 
 ---
 
+## 7b. Call flow — what actually runs, in order
+
+```
+POST /v1/memories/search
+  │
+  ├─1 errors.add_correlation_id()          memory/errors.py
+  ├─2 auth.authenticate()                  memory/auth.py        -> 401
+  ├─3 SearchRequest validation             memory/models.py      -> 422
+  │
+  └─4 api.search_memories()                memory/api.py
+        │
+        ├─ auth.bind_subject()             memory/auth.py        -> 403
+        ├─ cache.is_rate_limited()  ──────────────► REDIS        -> 429
+        ├─ db.get_consent()         ──────────────► POSTGRES     -> 403
+        │
+        ├─ db.negative_feedback()          memory/db.py
+        │    memories marked unhelpful ────────────► POSTGRES
+        │
+        └─ retrieval.search()              memory/retrieval.py
+              │
+              ├─ retrieval.graph_candidates()
+              │     │  memories about an entity the listener named
+              │     ├─ entities.resolve_all() ──► data/catalog.yaml
+              │     └─                        ──► NEO4J
+              │
+              ├─ retrieval.vector_candidates()
+              │     │  memories that mean something similar
+              │     └─ embeddings.search()    memory/embeddings.py
+              │           ├─ embeddings.embed() ──► SentenceTransformers
+              │           └─                     ──► NEO4J (vector index)
+              │
+              ├─ graph.get_memory()  ──────────────► NEO4J
+              │     fills in details for vector-only hits
+              │
+              ├─ for each: retrieval.rank_one()
+              │     │  combines the six signals into one score
+              │     ├─ retrieval.recency_score()
+              │     └─ retrieval.repetition_score()
+              │
+              ├─ sort by score, highest first
+              │
+              ├─ retrieval.allowed_on_surface()
+              │     └─ policy.may_surface() ──► data/policy_registry.yaml
+              │           drops what this surface may not show
+              │
+              └─ retrieval.apply_diversity()
+                    stops one entity filling the results
+
+        └─ [background] db.record_audit()  ──────────► POSTGRES
+
+  response: {"results": [...], "removed": [...],
+             "considered": 5, "trace_id": "cid_..."}
+```
+
+**Both searches run, then merge.** Neither alone is enough: the vector
+half finds meaning, the graph half finds precision.
+
+**Filtering happens after ranking**, so `removed` can explain what was
+found and then dropped, rather than silently never looking.
+
+---
+
 ## 8. Files
 
 | File | Job |

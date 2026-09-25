@@ -248,6 +248,66 @@ listener's music over a privacy setting.
 
 ---
 
+## 8c. Call flow — what actually runs, in order
+
+```
+POST /v1/context/compose
+  │
+  ├─1 errors.add_correlation_id()          memory/errors.py
+  ├─2 auth.authenticate()                  memory/auth.py        -> 401
+  ├─3 ComposeRequest validation            memory/models.py      -> 422
+  │
+  └─4 api.compose_context()                memory/api.py
+        │
+        ├─ auth.bind_subject()             memory/auth.py        -> 403
+        ├─ cache.is_rate_limited()  ──────────────► REDIS        -> 429
+        │
+        ├─ db.get_consent()         ──────────────► POSTGRES
+        │     NOT an error if paused: returns the no-memory package,
+        │     so the listener's music keeps working (abc.md:158)
+        │
+        ├─ db.negative_feedback()   ──────────────► POSTGRES
+        │
+        ├─ retrieval.search()              memory/retrieval.py
+        │     the whole of endpoint 4 runs here
+        │     ──► NEO4J, SentenceTransformers, data/policy_registry.yaml
+        │
+        └─ composer.compose()              memory/composer.py
+              │
+              ├─ composer.make_fence()
+              │     a random marker for this request, so a listener
+              │     cannot have stored text that closes the fence
+              │
+              ├─ composer.drop_low_confidence()
+              │     removes anything under 0.35
+              │
+              ├─ for each: composer.to_item()
+              │     └─ composer.relevance_reason()
+              │           one line on why this memory is here
+              │
+              ├─ composer.fit_budget()
+              │     │  adds items while the REAL block still fits
+              │     ├─ composer.render_block()
+              │     └─ composer.estimate_tokens()
+              │
+              └─ composer.render_block()
+                    warning + fence + JSON-encoded memories
+
+        └─ [background] db.record_audit()  ──────────► POSTGRES
+              records WHICH memories influenced the response
+
+  response: {"no_memory": false, "context_block": "...",
+             "items": [...], "fence_open": "<<<MEMORY_DATA_79304...",
+             "token_estimate": 192, "trace_id": "cid_..."}
+```
+
+**This endpoint contains endpoint 4.** It searches first, then packages.
+One call from the AI surface does the whole read path.
+
+**No database is written** except the audit line. Composition only reads.
+
+---
+
 ## 8b. The functions this API uses
 
 Names and why, not code.
