@@ -128,6 +128,76 @@ class MemoryCreated(BaseModel):
     superseded: str | None = None
 
 
+class FeedbackRequest(BaseModel):
+    """What POST /v1/feedback accepts.
+
+    abc.md:318 - "Record relevance, correction, rejection, or experience
+    feedback without self-validating model output."
+    """
+
+    subject_id: str = Field(min_length=1)
+
+    # The four kinds abc.md:318 names.
+    kind: Literal["relevance", "correction", "rejection", "experience"]
+
+    sentiment: Literal["helpful", "unhelpful", "wrong"]
+
+    # Which memory this is about. Optional, because feedback on the whole
+    # experience is not about one memory.
+    memory_id: str | None = None
+
+    # Which response this came from, so the feedback can be tied back to
+    # the decisions that produced it.
+    trace_id: str | None = None
+
+
+class FeedbackRecorded(BaseModel):
+    """What POST /v1/feedback returns."""
+
+    feedback_id: str
+    recorded: bool = True
+
+    # Whether this feedback was allowed to change the memory's standing.
+    # abc.md:149 - false for anything the model produced.
+    reinforced: bool
+
+    # Why it was or was not, in plain words.
+    reinforce_reason: str
+
+
+class TraceDecision(BaseModel):
+    """One decision taken while answering a request.
+
+    Identifiers, outcomes and reasons - never memory text (abc.md:322).
+    """
+
+    stage: str
+    decision: str
+    memory_id: str | None = None
+    reason: str | None = None
+    score: float | None = None
+    recorded_at: datetime
+
+
+class TraceRecord(BaseModel):
+    """What GET /v1/traces/{trace_id} returns.
+
+    abc.md:320 - "authorized retrieval and policy decisions with sensitive
+    fields redacted."
+    """
+
+    trace_id: str
+
+    # What was decided during retrieval, ranking, policy and composition.
+    decisions: list[TraceDecision] = Field(default_factory=list)
+
+    # What the services did, from the audit trail (abc.md:345).
+    actions: list[dict] = Field(default_factory=list)
+
+    # Always true, and stated: the trace carries no memory text.
+    redacted: bool = True
+
+
 class PatchMemoryRequest(BaseModel):
     """What PATCH /v1/memories/{memory_id} accepts.
 

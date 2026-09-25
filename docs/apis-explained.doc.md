@@ -4,7 +4,7 @@ Why this file exists: the other docs explain *how* each API works, in
 detail. This one explains *what* each API is for, in one page, with no
 jargon.
 
-Eight of the ten are built.
+**All ten are built.**
 
 ---
 
@@ -598,6 +598,97 @@ Now a store only says `deleted` when something actually went.
 
 ---
 
+## API 9 — `POST /v1/feedback`
+
+### What it does
+
+**Records what you thought of a memory.**
+
+You see a suggestion and react: that helped, that was irrelevant, that is
+just wrong.
+
+### The trap it exists to avoid
+
+Imagine this loop:
+
+```
+1. The system guesses  "might like ambient music"
+2. That guess shapes a reply
+3. You like the reply and click thumbs-up
+4. The guess gets more confident
+5. So it shows up more often
+6. More thumbs-up...
+```
+
+By step 6 the system is **certain** about something you never said. No new
+fact ever arrived. It used its own output as proof of its own output.
+
+### So the rule is lopsided, on purpose
+
+| You say | About something **you said** | About something **it guessed** |
+|---|---|---|
+| "helpful" | ✅ counts | ❌ **recorded, but changes nothing** |
+| "unhelpful" | ✅ counts | ✅ counts |
+| "wrong" | ✅ counts | ✅ counts |
+
+**Being told it is wrong always counts.** That is information from you,
+whatever produced the memory.
+
+**Being told it is right only counts for your own words.** Agreeing with
+something you said is real. Agreeing with its guess is not.
+
+The reply says which happened, and why:
+
+```
+"reinforced": false,
+"reinforce_reason": "candidate_preference was inferred by us; positive
+                     feedback on our own output is not evidence for it"
+```
+
+---
+
+## API 10 — `GET /v1/traces/{trace_id}`
+
+### What it does
+
+**Answers "why did it say that?"**
+
+Every search and every reply writes down what it decided. This reads it
+back.
+
+```
+included  mem_bc4f...  score 0.831   strongest signal: explicitness
+excluded  mem_4ca8...                candidate_preference not allowed on player
+```
+
+So a complaint has an answer instead of a shrug.
+
+### It records what it left OUT too
+
+That matters more than it sounds. "Why didn't it know that?" is the more
+common complaint, and a trace showing only what was used cannot answer it.
+
+```
+"confidence 0.2 below 0.35"
+"would exceed the 400 token budget"
+"more than 2 about topic_jazz"
+```
+
+Each is a different thing to go and check.
+
+### It shows the decision, not the memory
+
+Support staff investigating a complaint should not end up reading your
+private memories. So the trace holds **memory ids, scores and reasons** -
+never what the memory says.
+
+A reviewer sees that `mem_af02...` scored 0.831 and was used because you
+had stated it outright. They do not see that it says "prefers instrumental
+music while working". If they need that, they look it up through a route
+that checks whether they are allowed.
+
+---
+
 ## What this means today
 
 If a listener says *"no country music"* right now:
@@ -608,16 +699,28 @@ If a listener says *"no country music"* right now:
 - API 4 finds it again when they next ask for music ✅
 - API 5 hands it to the AI, safely and within a size limit ✅
 
-**The loop is closed, and the listener is in control of it.** Someone who
-says "no country music" on Monday gets a reply on Friday that respects it
-- and can correct or delete that memory whenever they like.
+**All ten are built.**
 
-Two APIs left:
+Someone who says "no country music" on Monday gets a reply on Friday that
+respects it. They can correct that memory, delete it everywhere and check
+the deletion finished, say it was unhelpful, and ask why the system did
+what it did.
 
-| | |
-|---|---|
-| API 9 | Say a memory was unhelpful |
-| API 10 | See why the system did what it did |
+```
+1. events     write down what happened           ✅
+2. extract    decide what is worth remembering   ✅
+3. memories   keep it                            ✅
+4. search     find what matters now              ✅
+5. compose    hand it to the AI, safely          ✅
+6. patch      correct or retire a memory         ✅
+7. delete     remove it everywhere               ✅
+8. deletions  check the deletion finished        ✅
+9. feedback   say it was wrong or unhelpful      ✅
+10. traces    see why it did what it did         ✅
+```
+
+Plus the **memory processor**, the background worker that runs 2 and 3 on
+its own - which is what makes the whole thing automatic.
 
 ---
 
@@ -633,6 +736,8 @@ Two APIs left:
 | `memories-patch.doc.md` | API 6 in detail |
 | `memories-delete.doc.md` | API 7 in detail |
 | `deletions.doc.md` | API 8 in detail |
+| `feedback.doc.md` | API 9 in detail |
+| `traces.doc.md` | API 10 in detail |
 | `flow/` | A code-flow trace for every API |
 | `HOW_IT_WORKS.md` | API 1 line by line, with the code |
 | `REQUIREMENTS.md` | What the project has to deliver |

@@ -14,6 +14,8 @@ the data goes, and what comes back — with one line per function.
 | `api-6-patch.flow.md` | `PATCH /v1/memories/{id}` | Correct or retire a memory |
 | `api-7-delete.flow.md` | `DELETE /v1/memories/{id}` | Delete it everywhere |
 | `api-8-deletions.flow.md` | `GET /v1/deletions/{job_id}` | Did every store actually clear? |
+| `api-9-feedback.flow.md` | `POST /v1/feedback` | Say a memory was wrong or unhelpful |
+| `api-10-traces.flow.md` | `GET /v1/traces/{id}` | See why it did what it did |
 | `worker-memory-processor.flow.md` | *(not an endpoint)* | The worker that runs 2 and 3 on its own |
 
 ---
@@ -59,6 +61,8 @@ Each file has four parts:
 6. patch     "that's wrong" / "stop using that"
 7. delete    remove it from every store
 8. deletions did every store actually clear?
+9. feedback  that was wrong / that helped
+10. traces   why did it say that?
 ```
 
 APIs 1 and 5 are called by Spotify's chat and player.

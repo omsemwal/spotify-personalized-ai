@@ -131,12 +131,19 @@ def test_get_deletion():
 # --- Feedback and explainability -----------------------------------------
 
 def test_create_feedback():
-    r = client.post("/v1/feedback", json={"rating": "good"}, headers=AUTH)
+    # Now typed. See tests/test_feedback_trace_api.py for the rule that
+    # positive feedback on our own guess does not reinforce it.
+    r = client.post(
+        "/v1/feedback",
+        json={"subject_id": "user_001", "kind": "experience",
+              "sentiment": "unhelpful"},
+        headers=AUTH,
+    )
     assert r.status_code == 200
     assert r.json()["recorded"] is True
 
 
 def test_get_trace():
-    r = client.get("/v1/traces/trc_1", headers=AUTH)
-    assert r.status_code == 200
-    assert r.json()["trace_id"] == "trc_1"
+    # Now subject-scoped, and only real traces exist.
+    r = client.get("/v1/traces/cid_nope?subject_id=user_001", headers=AUTH)
+    assert r.status_code == 404

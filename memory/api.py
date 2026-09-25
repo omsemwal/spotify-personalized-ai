@@ -18,6 +18,7 @@ from memory import (
     composer,
     db,
     deletion,
+    feedback as feedback_service,
     embeddings,
     entities as entity_resolver,
     errors,
@@ -26,6 +27,7 @@ from memory import (
     model_client,
     policy,
     queue,
+    trace as trace_service,
     retrieval,
 )
 from memory.auth import Caller, authenticate, bind_subject
@@ -45,6 +47,10 @@ from memory.models import (
     MemoryUpdated,
     DeletionAccepted,
     DeletionStatus,
+    FeedbackRequest,
+    FeedbackRecorded,
+    TraceRecord,
+    TraceDecision,
 )
 
 app = FastAPI(
@@ -433,6 +439,13 @@ def search_memories(
     # that link, and it is already on the response header.
     trace_id = errors.correlation_id.get()
 
+    # abc.md:101 - the trace has to be replayable, so the decisions are
+    # written down as they are taken.
+    background.add_task(
+        trace_service.record_search,
+        trace_id, request.subject_id, found["results"], found["removed"],
+    )
+
     background.add_task(
         db.record_audit,
         action="search.completed",
@@ -502,6 +515,12 @@ def compose_context(
     )
     # Anything retrieval dropped is part of the same story.
     package.removed = found["removed"] + package.removed
+
+    # abc.md:101 - record the decisions so the trace can be replayed.
+    background.add_task(
+        trace_service.record_search,
+        trace_id, request.subject_id, package.items, package.removed,
+    )
 
     # abc.md:135 - "record which memories influenced each response".
     background.add_task(
@@ -709,13 +728,84 @@ def get_deletion(
 
 # --- Feedback and explainability -----------------------------------------
 
-@app.post("/v1/feedback")
-def create_feedback(body: dict, caller: Caller = Depends(authenticate)):
-    """9. Record relevance, correction, or rejection feedback."""
-    return {"feedback_id": "fbk_stub", "recorded": True}
+@app.post("/v1/feedback", response_model=FeedbackRecorded)
+def create_feedback(
+    request: FeedbackRequest,
+    background: BackgroundTasks,
+    caller: Caller = Depends(authenticate),
+):
+    """9. Record relevance, correction, rejection or experience feedback.
+
+    abc.md:318 - "without self-validating model output". Negative feedback
+    always counts; positive feedback counts only for memories the listener
+    stated themselves. A thumbs-up on our own guess is not evidence for
+    the guess.
+    """
+    bind_subject(caller, request.subject_id)
+    trace_id = errors.correlation_id.get()
+
+    if cache.is_rate_limited(request.subject_id):
+        raise HTTPException(
+            status_code=429,
+            detail=errors.error(errors.RATE_LIMITED,
+                                "too many requests this minute"),
+        )
+
+    # A memory named in feedback must belong to this subject.
+    if request.memory_id and graph.get_memory(
+        request.memory_id, request.subject_id
+    ) is None:
+        raise HTTPException(
+            status_code=404,
+            detail=errors.error(errors.NOT_FOUND,
+                                "no such memory for this subject"),
+        )
+
+    result = feedback_service.record(
+        subject_id=request.subject_id,
+        kind=request.kind,
+        sentiment=request.sentiment,
+        memory_id=request.memory_id,
+        trace_id=request.trace_id or trace_id,
+    )
+
+    background.add_task(
+        db.record_audit,
+        action="feedback.recorded",
+        subject_id=request.subject_id,
+        service_id=caller.service_id,
+        outcome=request.sentiment,
+        correlation_id=trace_id,
+        memory_id=request.memory_id,
+    )
+    return FeedbackRecorded(**result)
 
 
-@app.get("/v1/traces/{trace_id}")
-def get_trace(trace_id: str, caller: Caller = Depends(authenticate)):
-    """10. Return the retrieval and policy decisions behind a response."""
-    return {"trace_id": trace_id, "decisions": [], "redacted": True}
+@app.get("/v1/traces/{trace_id}", response_model=TraceRecord)
+def get_trace(
+    trace_id: str, subject_id: str, caller: Caller = Depends(authenticate)
+):
+    """10. Return the retrieval and policy decisions behind a response.
+
+    abc.md:320 - "authorized retrieval and policy decisions with sensitive
+    fields redacted." The trace carries memory ids, scores and reasons, so
+    a reviewer can see the shape of a decision without reading anybody's
+    private memories.
+    """
+    bind_subject(caller, subject_id)
+
+    decisions = trace_service.get_trace(trace_id, subject_id)
+    actions = trace_service.get_audit_for_trace(trace_id, subject_id)
+
+    if not decisions and not actions:
+        raise HTTPException(
+            status_code=404,
+            detail=errors.error(errors.NOT_FOUND,
+                                "no such trace for this subject"),
+        )
+
+    return TraceRecord(
+        trace_id=trace_id,
+        decisions=[TraceDecision(**d) for d in decisions],
+        actions=actions,
+    )
