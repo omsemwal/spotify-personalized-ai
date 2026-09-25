@@ -11,6 +11,7 @@ the data goes, and what comes back — with one line per function.
 | `api-3-memories.flow.md` | `POST /v1/memories` | Saves it so it survives |
 | `api-4-search.flow.md` | `POST /v1/memories/search` | Finds the ones that matter now |
 | `api-5-compose.flow.md` | `POST /v1/context/compose` | Hands them to the AI, safely |
+| `worker-memory-processor.flow.md` | *(not an endpoint)* | The worker that runs 2 and 3 on its own |
 
 ---
 
@@ -54,7 +55,8 @@ Each file has four parts:
 ```
 
 APIs 1 and 5 are called by Spotify's chat and player.
-APIs 2 and 3 are run by the background worker, not by anyone directly.
+APIs 2 and 3 are run by the **memory processor**, not by anyone directly -
+see `worker-memory-processor.flow.md`.
 API 4 is used inside API 5, and by the console screens.
 
 ---

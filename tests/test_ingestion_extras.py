@@ -109,14 +109,21 @@ def test_audit_holds_no_event_content():
 # --- 4. Rate limits (abc.md:356) ------------------------------------------
 
 def test_too_many_events_are_refused():
+    """The counter is per clock minute, so a run that straddles a minute
+    boundary would reset it half way through. Look for a 429 anywhere in
+    the run rather than only at the end."""
     limit = cache.RATE_LIMIT_PER_MINUTE
-    last = None
-    for n in range(limit + 2):
-        last = client.post(
+    refused = []
+
+    for n in range(limit + 5):
+        r = client.post(
             "/v1/events", json=valid_event(idempotency_key=f"k{n}"), headers=AUTH
         )
-    assert last.status_code == 429
-    assert last.json()["detail"]["code"] == "RATE_LIMITED"
+        if r.status_code == 429:
+            refused.append(r)
+
+    assert refused, f"no request was refused after {limit + 5} in one minute"
+    assert refused[0].json()["detail"]["code"] == "RATE_LIMITED"
 
 
 def test_the_rate_counter_expires_by_itself():
