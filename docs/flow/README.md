@@ -12,7 +12,8 @@ the data goes, and what comes back — with one line per function.
 | `api-4-search.flow.md` | `POST /v1/memories/search` | Finds the ones that matter now |
 | `api-5-compose.flow.md` | `POST /v1/context/compose` | Hands them to the AI, safely |
 | `api-6-patch.flow.md` | `PATCH /v1/memories/{id}` | Correct or retire a memory |
-| `api-7-delete.flow.md` | `DELETE` + `GET /v1/deletions/{job}` | Delete it everywhere, and check it worked |
+| `api-7-delete.flow.md` | `DELETE /v1/memories/{id}` | Delete it everywhere |
+| `api-8-deletions.flow.md` | `GET /v1/deletions/{job_id}` | Did every store actually clear? |
 | `worker-memory-processor.flow.md` | *(not an endpoint)* | The worker that runs 2 and 3 on its own |
 
 ---

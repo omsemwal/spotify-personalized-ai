@@ -4,7 +4,7 @@ Why this file exists: the other docs explain *how* each API works, in
 detail. This one explains *what* each API is for, in one page, with no
 jargon.
 
-Five of the ten are built.
+Eight of the ten are built.
 
 ---
 
@@ -469,6 +469,135 @@ error**. Their music keeps working; it simply carries on without memory.
 
 ---
 
+## API 6 — `PATCH /v1/memories/{memory_id}`
+
+### What it does
+
+**Lets someone fix or retire a memory.**
+
+The system thinks you like jazz. You never did. This is how you say so.
+
+```
+"that's wrong"  →  the old memory is retired, a corrected one takes over
+"stop using that" → the memory is closed
+```
+
+### Nothing is deleted
+
+The old memory is **kept**, marked finished:
+
+```
+"Prefers jazz"       retired on 25 September   (still readable)
+"Never liked jazz"   the live one
+```
+
+So "why did it think I liked jazz?" always has an answer. Actually
+removing it is API 7.
+
+### The clever part: two people at once
+
+Two support staff open the same memory. One corrects it. The other, still
+looking at their old screen, retires it a second later.
+
+Without a check, the second silently undoes the first and nobody knows.
+
+So every request says **which version you were looking at**:
+
+```
+"expected_version": 1
+```
+
+If the memory has moved on to version 2, the request is refused:
+
+> "memory is at version 2, not 1"
+
+Look again, then try again.
+
+---
+
+## API 7 — `DELETE /v1/memories/{memory_id}`
+
+### What it does
+
+**Removes a memory from everywhere it lives.**
+
+Not one place - five:
+
+```
+the memory itself        in Neo4j
+its 384 numbers          on the same record
+anything cached          in Redis
+the events it came from  in PostgreSQL
+backups                  yesterday's snapshots
+```
+
+### Why you get a receipt, not a "done"
+
+Any of those five can fail while the others work. So deleting hands back a
+**job number** straight away, and you ask later whether every place really
+cleared.
+
+```
+{"job_id": "job_a1b2c3d4", "status": "accepted"}
+```
+
+### It stops working immediately
+
+Before anything is actually removed, the memory is marked deleted - so it
+**stops being used at once**, even if clearing a store takes a moment.
+
+Your "forget that" is honoured immediately. The tidying up follows.
+
+### Backups are handled honestly
+
+You cannot reach into last night's backup and remove a row. So we do not
+claim to. The status says `retained_by_policy` - the memory leaves when
+that backup expires on its own.
+
+Saying "deleted" would be a lie, in the one place where lying matters
+most.
+
+---
+
+## API 8 — `GET /v1/deletions/{job_id}`
+
+### What it does
+
+**Answers one question: did the deletion actually finish?**
+
+You hand it the job number from API 7:
+
+```
+{"status": "completed",
+ "stores": {"graph":       "deleted",
+            "vector":      "deleted",
+            "cache":       "deleted",
+            "operational": "deleted",
+            "backup":      "retained_by_policy"}}
+```
+
+One line per place. Not a single "yes" - because a single yes could hide
+one place that failed.
+
+### And if something failed
+
+The whole job says **failed**, even if four of five worked. A partial
+deletion is not a success.
+
+### A bug this caught
+
+There is a difference between **"I removed it"** and **"there was nothing
+to remove"** - and it is not a small one.
+
+An early version of the deletion removed nothing from one store and
+reported "deleted" anyway. The job looked perfectly healthy while the data
+sat untouched. Every test passed, because they checked what the job
+*said*.
+
+Now a store only says `deleted` when something actually went.
+
+---
+
 ## What this means today
 
 If a listener says *"no country music"* right now:
@@ -479,17 +608,15 @@ If a listener says *"no country music"* right now:
 - API 4 finds it again when they next ask for music ✅
 - API 5 hands it to the AI, safely and within a size limit ✅
 
-**The loop is closed.** A listener who says "no country music" on Monday
-gets a reply on Friday that respects it.
+**The loop is closed, and the listener is in control of it.** Someone who
+says "no country music" on Monday gets a reply on Friday that respects it
+- and can correct or delete that memory whenever they like.
 
-The five APIs still to build are about control and explanation:
+Two APIs left:
 
 | | |
 |---|---|
-| API 6 | Correct a memory |
-| API 7 | Delete one, everywhere |
-| API 8 | Check the deletion finished |
-| API 9 | Say a memory was wrong or unhelpful |
+| API 9 | Say a memory was unhelpful |
 | API 10 | See why the system did what it did |
 
 ---
@@ -503,5 +630,9 @@ The five APIs still to build are about control and explanation:
 | `memories.doc.md` | API 3 in detail |
 | `memories-search.doc.md` | API 4 in detail |
 | `context-compose.doc.md` | API 5 in detail |
+| `memories-patch.doc.md` | API 6 in detail |
+| `memories-delete.doc.md` | API 7 in detail |
+| `deletions.doc.md` | API 8 in detail |
+| `flow/` | A code-flow trace for every API |
 | `HOW_IT_WORKS.md` | API 1 line by line, with the code |
 | `REQUIREMENTS.md` | What the project has to deliver |
