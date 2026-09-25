@@ -137,7 +137,9 @@ def delete_from_graph(memory_id: str, subject_id: str) -> str:
             "DETACH DELETE m RETURN count(m) AS removed",
             memory_id=memory_id, subject_id=subject_id,
         ).single()
-    return "deleted" if record["removed"] else "deleted"
+    # Report what happened, not what was attempted. A node that was not
+    # there must not be reported as a successful deletion.
+    return "deleted" if record["removed"] else "nothing_to_delete"
 
 
 # Clear anything this subject has cached.
@@ -145,26 +147,50 @@ def delete_from_cache(subject_id: str) -> str:
     client = cache.client()
     pattern = f"{cache.config.redis_prefix()}:*:{subject_id}:*"
     keys = list(client.scan_iter(match=pattern))
-    if keys:
-        client.delete(*keys)
+    if not keys:
+        return "nothing_to_delete"
+    client.delete(*keys)
     return "deleted"
 
 
+# Which events produced this memory. Read BEFORE the node is destroyed.
+def source_events_of(memory_id: str, subject_id: str) -> list[str]:
+    """The event ids must be collected before the graph node is deleted.
+
+    Deleting the node first and then asking it what it came from returns
+    nothing - which is how the operational store silently went uncleared
+    while still reporting success.
+    """
+    memory = graph.get_memory(memory_id, subject_id)
+    return list((memory or {}).get("source_event_ids") or [])
+
+
 # Remove the operational trail: the events this memory came from.
-def delete_from_operational(memory_id: str, subject_id: str) -> str:
+def delete_from_operational(event_ids: list[str], subject_id: str) -> str:
     """abc.md:140 - deletion covers "operational metadata" too.
+
+    Takes the event ids explicitly, rather than looking them up, because
+    by the time this runs the memory node is already gone.
 
     The audit line for the deletion itself is kept: abc.md:118 warns
     against "erasing audit history prematurely", and a deletion with no
     record of having happened is worse than no deletion.
     """
+    if not event_ids:
+        # Nothing to remove is a real outcome, and must not be reported as
+        # a successful deletion of something.
+        return "nothing_to_delete"
+
     with db.connect() as conn:
-        conn.execute(
-            "DELETE FROM ingested_event WHERE subject_id = %s "
-            "AND event_id IN (SELECT unnest(%s::text[]))",
-            (subject_id, []),
+        result = conn.execute(
+            "DELETE FROM ingested_event "
+            "WHERE subject_id = %s AND event_id = ANY(%s)",
+            (subject_id, event_ids),
         )
-    return "deleted"
+        removed = result.rowcount
+
+    # Say what actually happened, not what was attempted.
+    return "deleted" if removed else "nothing_to_delete"
 
 
 # Do the whole cross-store deletion and record what happened in each.
@@ -176,11 +202,15 @@ def run_job(job_id: str, subject_id: str, memory_id: str) -> dict:
     """
     outcomes: dict[str, str] = {}
 
+    # Collect what we will need BEFORE anything is destroyed. Asking the
+    # graph node what it came from after deleting it returns nothing.
+    event_ids = source_events_of(memory_id, subject_id)
+
     for store, action in (
         ("graph", lambda: delete_from_graph(memory_id, subject_id)),
         ("vector", lambda: "deleted"),          # same node as the graph
         ("cache", lambda: delete_from_cache(subject_id)),
-        ("operational", lambda: delete_from_operational(memory_id, subject_id)),
+        ("operational", lambda: delete_from_operational(event_ids, subject_id)),
         ("backup", lambda: BACKUP_POLICY),
     ):
         try:

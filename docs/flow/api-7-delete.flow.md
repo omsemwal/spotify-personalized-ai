@@ -60,6 +60,11 @@ DELETE /v1/memories/{memory_id}?subject_id=user_001
        ├─ deletion.run_job()         [background]   memory/deletion.py
        │    │   each store separately, each recorded separately
        │    │
+       │    ├─ deletion.source_events_of()  ────────► NEO4J
+       │    │     FIRST: which events did this come from?
+       │    │     asked before the node is destroyed, or the answer
+       │    │     comes back empty
+       │    │
        │    ├─ deletion.delete_from_graph()  ───────► NEO4J
        │    │     DETACH DELETE — takes the vector with it
        │    │
@@ -125,6 +130,7 @@ RESPONSE
 | `run_job()` | `memory/deletion.py` | Clears each store and records each outcome |
 | `delete_from_graph()` | `memory/deletion.py` | Removes the node, its links and its vector |
 | `delete_from_cache()` | `memory/deletion.py` | Clears this subject's Redis keys |
+| `source_events_of()` | `memory/deletion.py` | Reads the source event ids before the node is destroyed |
 | `delete_from_operational()` | `memory/deletion.py` | Removes the events it came from |
 | `set_store_status()` | `memory/deletion.py` | Writes one store's outcome onto the job |
 | `get_job()` | `memory/deletion.py` | Reads the job back, subject-scoped |
@@ -168,6 +174,21 @@ row. So the status is `retained_by_policy`, not `deleted`.
 `abc.md:140` says deletion covers backups *"according to policy"* — the
 policy being that the memory leaves when that snapshot expires. Claiming
 otherwise would be a lie in exactly the place lying is most damaging.
+
+**4. Every store reports what actually happened.**
+
+A store returns `deleted` only when something was removed, and
+`nothing_to_delete` when there was nothing there. Reporting "deleted" for
+a store that cleared nothing is how a broken deletion hides in plain
+sight.
+
+> **This was a real bug, and it shipped.** The first version of
+> `delete_from_operational()` passed an empty list to the DELETE — so it
+> matched no rows — and returned `"deleted"` anyway. The cause was order:
+> `run_job()` destroyed the graph node first, so by the time the
+> operational step ran, the memory's `source_event_ids` were already gone.
+> The fix collects them **before** anything is destroyed. Three tests now
+> cover it, including one that checks an unrelated event survives.
 
 **And the audit line survives the deletion.** `abc.md:118` warns against
 erasing audit history; a deletion with no record of having happened is

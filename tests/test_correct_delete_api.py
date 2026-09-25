@@ -333,3 +333,65 @@ def test_an_unknown_job_is_not_found():
 def test_reading_a_job_needs_a_token():
     r = client.get("/v1/deletions/job_x?subject_id=user_001")
     assert r.status_code == 401
+
+
+# --- The events really go (abc.md:140) ------------------------------------
+#
+# These exist because the first version of delete_from_operational passed an
+# empty list to the DELETE and then returned "deleted" - it cleared nothing
+# and reported success. A deletion that lies is worse than one that fails.
+
+def test_the_source_events_are_actually_deleted():
+    """abc.md:140 - deletion covers operational metadata, not just the graph."""
+    import uuid
+
+    # Capture a real event, then build a memory that came from it.
+    r = client.post("/v1/events", json={
+        "schema_version": "1.0", "subject_id": "user_001",
+        "event_type": "ai_interaction", "surface": "chat", "locale": "en-US",
+        "occurred_at": "2026-09-25T10:00:00Z", "consent_state": "granted",
+        "source_event_id": "src", "idempotency_key": str(uuid.uuid4()),
+        "content": "I prefer instrumental music"}, headers=AUTH_1)
+    event_id = r.json()["event_id"]
+    assert db.get_event(event_id, "user_001") is not None
+
+    created = client.post("/v1/memories", json={
+        "subject_id": "user_001", "memory_type": "explicit_preference",
+        "fact": "Prefers instrumental music", "entities": ["instrumental"],
+        "confidence": 0.9, "source_event_ids": [event_id]}, headers=AUTH_1)
+
+    job = delete(created.json()["memory_id"]).json()
+
+    assert db.get_event(event_id, "user_001") is None, \
+        "the event the memory came from must be gone"
+    assert status(job["job_id"]).json()["stores"]["operational"] == "deleted"
+
+
+def test_a_store_with_nothing_in_it_does_not_claim_a_deletion():
+    """Reporting "deleted" when nothing was removed is how a broken
+    deletion hides."""
+    memory_id = store()          # no source events captured for this one
+    job_id = delete(memory_id).json()["job_id"]
+
+    stores = status(job_id).json()["stores"]
+    assert stores["graph"] == "deleted"
+    assert stores["operational"] == "nothing_to_delete"
+
+
+def test_deleting_a_memory_leaves_other_events_alone():
+    """Only the events this memory came from, not the subject's whole
+    history."""
+    import uuid
+
+    keep = client.post("/v1/events", json={
+        "schema_version": "1.0", "subject_id": "user_001",
+        "event_type": "ai_interaction", "surface": "chat", "locale": "en-US",
+        "occurred_at": "2026-09-25T10:00:00Z", "consent_state": "granted",
+        "source_event_id": "src", "idempotency_key": str(uuid.uuid4()),
+        "content": "something unrelated"}, headers=AUTH_1).json()["event_id"]
+
+    memory_id = store()
+    delete(memory_id)
+
+    assert db.get_event(keep, "user_001") is not None, \
+        "an unrelated event must survive"
