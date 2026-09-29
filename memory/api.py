@@ -10,6 +10,7 @@ read and write must bind to authenticated subject and service identities").
 import uuid
 
 from fastapi import BackgroundTasks, Depends, FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.exceptions import RequestValidationError
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
@@ -56,6 +57,28 @@ from memory.models import (
 app = FastAPI(
     title="Spotify Personalized AI Memory System",
     version="0.1.0",
+)
+
+# The consoles run on a different origin from the API, so the browser
+# needs to be told this is allowed. abc.md:254 - the product surfaces are
+# Next.js apps; abc.md:243 deploys them separately from the backend.
+#
+# The allowed origins are listed rather than opened to "*", because the
+# API carries bearer tokens and a wildcard would let any site on the
+# internet call it with a listener's credentials.
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[
+        "http://localhost:3000",     # memory-console, in development
+        "http://localhost:3001",     # memory-controls, in development
+        "http://127.0.0.1:3000",
+        "http://127.0.0.1:3001",
+    ],
+    allow_credentials=True,
+    allow_methods=["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
+    allow_headers=["Authorization", "Content-Type", "X-Correlation-Id"],
+    # So the browser can read the trace id off the response.
+    expose_headers=["X-Correlation-Id"],
 )
 
 # abc.md:322 - a tracking number on every request, a stable code on every

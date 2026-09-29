@@ -12,6 +12,17 @@ valid-time, and is correctable and deletable.
 
 ---
 
+## The frontend is a separate repository
+
+The operator consoles deploy separately from this API, so they live on their own:
+
+### → **https://github.com/omsemwal/spotify-fronted**
+
+Next.js, React and Tailwind (`abc.md:200`). Start this backend first — the
+consoles are a window onto it and hold no data of their own.
+
+---
+
 ## Running it
 
 Full instructions, including troubleshooting, are in **[RUNNING.md](RUNNING.md)**.
@@ -331,9 +342,9 @@ progress) once the stack is running.
    rate are labelled "not instrumented" because no §7.3 endpoint reports them.
    No number is invented.
 8. **Redis and Qdrant containers are defined but unused** by application code.
-9. **The frontend is plain HTML**, not the Next.js/React/Tailwind that §6.2
-   lists as preferred, chosen so every surface is readable in a single file with
-   no build step.
+9. **The frontend is in its own repository**, at
+   https://github.com/omsemwal/spotify-fronted — Next.js, React and Tailwind, as
+   §6.2 asks for. It is separate because it deploys separately from this API.
 
 ---
 
