@@ -250,6 +250,48 @@ def test_a_correction_supersedes_whatever_it_is_about():
     assert graph.get_memory(first, "user_001")["status"] == "superseded"
 
 
+def test_a_guess_never_supersedes_a_stated_exclusion():
+    """A candidate preference must not close an exclusion.
+
+    Found by the golden set, not by a test: creating a 0.5-confidence
+    candidate preference about country music silently superseded a stated
+    exclusion about country music, leaving only the guess. The listener
+    would then have been played the one thing they had ruled out.
+
+    abc.md:49 - a candidate preference becomes durable "only after explicit
+    confirmation or repeated supporting evidence", so it cannot outrank
+    something the listener said outright.
+    """
+    excluded = create(memory_type="exclusion",
+                      fact="Does not want country music",
+                      entities=["country"]).json()["memory_id"]
+
+    guess = create(memory_type="candidate_preference",
+                   fact="Might enjoy modern country crossover",
+                   entities=["country"], confidence=0.5).json()
+
+    # The exclusion is untouched, and the guess did not replace it.
+    assert graph.get_memory(excluded, "user_001")["status"] == "active"
+    assert guess.get("superseded") is None
+
+    # Both are alive: we keep the guess, we simply do not let it win.
+    facts = {m["fact"] for m in graph.list_memories("user_001")}
+    assert "Does not want country music" in facts
+
+
+def test_a_stated_exclusion_does_supersede_a_guess():
+    """The other direction still works: the listener telling us no closes
+    whatever we had inferred."""
+    guess = create(memory_type="candidate_preference",
+                   fact="Might enjoy country",
+                   entities=["country"], confidence=0.5).json()["memory_id"]
+
+    create(memory_type="exclusion", fact="Does not want country music",
+           entities=["country"])
+
+    assert graph.get_memory(guess, "user_001")["status"] == "superseded"
+
+
 def test_memories_about_different_things_do_not_contradict():
     create(memory_type="explicit_preference", fact="Loves jazz", entities=["jazz"])
     create(memory_type="exclusion", fact="No country", entities=["country"])

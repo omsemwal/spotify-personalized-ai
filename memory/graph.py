@@ -225,12 +225,26 @@ def delete_memories(subject_id: str) -> int:
 # Supersession and correction are above. These three complete the set.
 
 # Memory types that cannot both be true about the same thing at once.
+#
+# The direction matters. Each pair reads (new_type, existing_type): the new
+# memory closes the existing one.
 OPPOSING = {
+    # Both stated by the listener, so either may replace the other. "I said
+    # no country, but actually I like it now" is a real change of mind.
     ("explicit_preference", "exclusion"),
     ("exclusion", "explicit_preference"),
-    ("candidate_preference", "exclusion"),
+
+    # A stated exclusion closes a guess we had made. Correct direction: the
+    # listener telling us no outranks anything we inferred.
     ("exclusion", "candidate_preference"),
 }
+
+# Memory types the listener stated outright, as opposed to ones we inferred.
+#
+# abc.md:49 - a candidate preference "may become a durable preference only
+# after explicit confirmation or repeated supporting evidence". abc.md:125
+# ranks by explicitness for the same reason.
+STATED_TYPES = frozenset({"explicit_preference", "exclusion", "correction"})
 
 
 # Find this subject's active memories that are about exactly these entities.
@@ -259,9 +273,30 @@ def find_about(subject_id: str, entity_ids: list[str]) -> list[dict]:
 
 # Does a new memory contradict an existing one about the same thing?
 def contradicts(new_type: str, existing_type: str) -> bool:
+    """Does a new memory close an existing one about the same thing?
+
+    A correction always overrides whatever it is about (abc.md:118).
+
+    Otherwise, an INFERRED memory may never close a STATED one. We guessed;
+    the listener told us. A guess that could supersede a stated exclusion
+    would let the system talk itself out of an instruction it was given -
+    and forgetting an exclusion means doing the exact thing the listener
+    asked us not to do.
+
+    Found by the golden set: creating a 0.5-confidence candidate preference
+    about country music silently superseded a stated exclusion about country
+    music, leaving only the guess. The listener would then have been played
+    the one thing they had ruled out.
+    """
     # A correction always overrides whatever it is about (abc.md:118).
     if new_type == "correction":
         return True
+
+    # We inferred the new one; the listener stated the old one. Not a
+    # contradiction to resolve - the stated memory simply stands.
+    if new_type not in STATED_TYPES and existing_type in STATED_TYPES:
+        return False
+
     return (new_type, existing_type) in OPPOSING
 
 

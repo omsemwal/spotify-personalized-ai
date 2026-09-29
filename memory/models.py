@@ -262,6 +262,40 @@ class DeletionStatus(BaseModel):
     error: str | None = None
 
 
+class ConsentRequest(BaseModel):
+    """What PATCH /v1/consent accepts.
+
+    abc.md:136 - "Provide review, correction, deletion, pause, and opt-out
+    paths with clear state and propagation status."
+    abc.md:51 - the Memory Control Experience lets a listener "review,
+    correct, remove, pause, or opt out of eligible memory behavior."
+
+    Section 7.3's API table does not list a consent endpoint, but section
+    5.4 requires the path, so this fills that gap rather than inventing a
+    new capability. The three states are the ones the consent table and
+    every event already use (abc.md:108).
+
+    granted - memory is used normally
+    paused  - memory is kept but not used; the experience carries on
+              without it (abc.md:158)
+    denied  - opted out; nothing new is captured and nothing is used
+    """
+
+    subject_id: str = Field(min_length=1)
+    state: Literal["granted", "paused", "denied"]
+
+
+class ConsentState(BaseModel):
+    """What PATCH /v1/consent and GET /v1/consent return."""
+
+    subject_id: str
+    state: str
+
+    # What this state means for the listener, in one line, because
+    # abc.md:136 asks for "clear state" and a bare enum is not clear.
+    meaning: str
+
+
 class ComposeRequest(BaseModel):
     """What POST /v1/context/compose accepts.
 
@@ -368,6 +402,22 @@ class RankedMemory(BaseModel):
     signals: dict[str, float]
     entities: list[str] = Field(default_factory=list)
     evidence_count: int = 1
+
+    # When this memory was written, and the window it is true for.
+    #
+    # abc.md:117 - the graph stores "valid-from, valid-to, recorded-at,
+    # source-event identifiers, confidence, and policy class". Those first
+    # three are what abc.md:340 means by a timeline: without them the memory
+    # explorer can list memories but cannot place them in time.
+    recorded_at: datetime | None = None
+    valid_from: datetime | None = None
+
+    # None while the memory is still true. Set when it is superseded or
+    # expired, which is how a correction keeps history instead of erasing it.
+    valid_to: datetime | None = None
+
+    # active | superseded | expired. abc.md:340 asks for status by name.
+    status: str = "active"
 
 
 class SearchResult(BaseModel):

@@ -7,6 +7,7 @@ Every endpoint except /health requires a bearer token (abc.md:162: "Every
 read and write must bind to authenticated subject and service identities").
 """
 
+import time
 import uuid
 
 from fastapi import BackgroundTasks, Depends, FastAPI, HTTPException
@@ -32,6 +33,11 @@ from memory import (
     retrieval,
 )
 from memory.auth import Caller, authenticate, bind_subject
+from memory.models import (
+    ConsentRequest,
+    ConsentState,
+    SUPPORTED_SCHEMA_VERSION,
+)
 from memory.models import (
     SUPPORTED_SCHEMA_VERSION,
     Event,
@@ -84,6 +90,32 @@ app.add_middleware(
 # abc.md:322 - a tracking number on every request, a stable code on every
 # error.
 app.middleware("http")(errors.add_correlation_id)
+
+
+# Time every request, so the retrieval SLO has something to report.
+#
+# abc.md:170 - "P95 retrieval and context composition should remain within a
+# 250 ms service budget for the pilot." A percentile needs the individual
+# durations, so each request writes one row and GET /metrics computes the
+# percentiles from them.
+#
+# The write is best-effort: a metrics failure must never fail the request it
+# was measuring.
+@app.middleware("http")
+async def record_request_latency(request, call_next):
+    started = time.perf_counter()
+    response = await call_next(request)
+    elapsed_ms = (time.perf_counter() - started) * 1000
+
+    route = f"{request.method} {request.url.path}"
+    try:
+        db.record_latency(route, elapsed_ms, response.status_code)
+    except Exception:  # noqa: BLE001 - measuring must not break the measured
+        pass
+
+    # Useful when watching a single call by hand.
+    response.headers["X-Duration-Ms"] = f"{elapsed_ms:.1f}"
+    return response
 app.add_exception_handler(RequestValidationError, errors.handle_validation_error)
 app.add_exception_handler(StarletteHTTPException, errors.handle_http_error)
 
@@ -520,6 +552,25 @@ def compose_context(
         package = composer.compose([], request.surface, request.token_budget,
                                    trace_id, healthy=False)
         package.reason = f"consent is {consent}"
+        # abc.md:143 - the fallback rate needs every fallback counted, and
+        # the reason recorded, because consent-paused and graph-unhealthy are
+        # very different problems behind the same rate.
+        background.add_task(
+            db.record_fallback, request.subject_id, True,
+            f"consent_{consent}", trace_id,
+        )
+        return package
+
+    # abc.md:146 - the memory-disabled arm of the experiment. Checked before
+    # retrieval, because the baseline must not pay the cost of a search whose
+    # result it will not use.
+    if db.cohort_of(request.subject_id) == "memory_disabled":
+        package = composer.compose([], request.surface, request.token_budget,
+                                   trace_id, memory_disabled=True)
+        background.add_task(
+            db.record_fallback, request.subject_id, True,
+            "memory_disabled_cohort", trace_id,
+        )
         return package
 
     found = retrieval.search(
@@ -556,7 +607,165 @@ def compose_context(
         memory_id=",".join(i.memory_id for i in package.items) or None,
     )
 
+    # Every composition is counted, fallback or not - a rate needs both
+    # halves. abc.md:143.
+    background.add_task(
+        db.record_fallback,
+        request.subject_id,
+        package.no_memory,
+        package.reason if package.no_memory else None,
+        trace_id,
+    )
+
     return package
+
+
+# --- Policy registry -------------------------------------------------------
+
+@app.get("/policy")
+def policy_registry(caller: Caller = Depends(authenticate)):
+    """The policy registry, for the schema and policy screen.
+
+    abc.md:237 - the system needs a "policy registry describing allowed
+    memory types, sensitivity, purposes, retention, geography, age-related
+    handling, and retrieval eligibility."
+    abc.md:343 - the schema and policy screen shows "version history,
+    allowed fields, retention, sensitivity, and rollout state."
+
+    The registry already existed as data/policy_registry.yaml. It simply had
+    no way to be read, so the screen that must show it could not. This
+    returns the same file the policy engine enforces, so a console can never
+    display a retention rule that differs from the one being applied.
+
+    Read-only, and operational rather than versioned like /v1: it describes
+    the service's own configuration, the way /metrics and /health do.
+    """
+    return {
+        # The one event contract version accepted. abc.md:110 - unsupported
+        # versions are rejected before anything is stored.
+        "event_schema_version": SUPPORTED_SCHEMA_VERSION,
+
+        # Every memory type, with the three fields abc.md:292 requires.
+        "memory_types": policy.registry(),
+
+        # The surfaces a memory can be eligible on. abc.md:108 fixes these.
+        "surfaces": ["chat", "player", "search"],
+
+        # abc.md:343 asks for rollout state. There is one registry and it is
+        # live; saying so is more useful than an invented staging flag.
+        "rollout_state": "live",
+    }
+
+
+# --- Consent: pause and opt out -------------------------------------------
+#
+# abc.md:136 - "Provide review, correction, deletion, pause, and opt-out
+#              paths with clear state and propagation status."
+# abc.md:51  - the Memory Control Experience lets a listener "review,
+#              correct, remove, pause, or opt out of eligible memory
+#              behavior."
+#
+# Section 7.3's API table lists ten endpoints and none of them changes
+# consent, so pause and opt-out had no path. Section 5.4 requires those
+# paths, so this fills the gap rather than adding a new capability: the
+# consent table, the three states and the enforcement all existed already.
+
+# What each consent state means, in one line for the listener.
+CONSENT_MEANING = {
+    "granted": "Memory is used to personalize your experience.",
+    "paused": "Memory is kept but not used. Nothing is deleted, and your "
+              "experience carries on without it.",
+    "denied": "Memory is switched off. Nothing new is captured and nothing "
+              "stored is used.",
+}
+
+
+@app.get("/v1/consent", response_model=ConsentState)
+def get_consent_state(subject_id: str, caller: Caller = Depends(authenticate)):
+    """Report this subject's consent state in plain words.
+
+    abc.md:136 asks for "clear state", which a bare enum is not. The
+    meaning travels with the state so every surface says the same thing.
+    """
+    bind_subject(caller, subject_id)
+    state = db.get_consent(subject_id) or "granted"
+    return ConsentState(
+        subject_id=subject_id,
+        state=state,
+        meaning=CONSENT_MEANING.get(state, state),
+    )
+
+
+@app.patch("/v1/consent", response_model=ConsentState)
+def set_consent_state(
+    request: ConsentRequest,
+    background: BackgroundTasks,
+    caller: Caller = Depends(authenticate),
+):
+    """Pause, resume, or opt out of memory.
+
+    abc.md:53 - consent is enforced before memory reaches retrieval, so
+    changing it here changes behaviour on the very next request: a paused or
+    denied subject gets an explicit no-memory package rather than an error
+    (abc.md:158).
+
+    Nothing is deleted. abc.md:137 keeps pause and deletion separate: pausing
+    stops memory being used, deleting removes it. A listener who wants their
+    memories gone uses DELETE /v1/memories/{id}, which reports its own
+    cross-store propagation.
+    """
+    bind_subject(caller, request.subject_id)
+    trace_id = errors.correlation_id.get()
+
+    previous = db.get_consent(request.subject_id) or "granted"
+    db.set_consent(request.subject_id, request.state)
+
+    # abc.md:322 - a consent change is exactly the kind of decision an audit
+    # trail exists for. Written inline rather than as a background task so it
+    # cannot be lost.
+    db.record_audit(
+        action="consent.changed",
+        subject_id=request.subject_id,
+        service_id=caller.service_id,
+        outcome=request.state,
+        correlation_id=trace_id,
+        reason=f"from {previous}",
+    )
+
+    # A paused or denied subject must not be answered from a warm cache.
+    # abc.md:141 - cache invalidation is part of honouring the change.
+    background.add_task(cache.forget_subject, request.subject_id)
+
+    return ConsentState(
+        subject_id=request.subject_id,
+        state=request.state,
+        meaning=CONSENT_MEANING.get(request.state, request.state),
+    )
+
+
+# --- Golden-set quality runs ----------------------------------------------
+
+@app.get("/quality/runs")
+def quality_runs(caller: Caller = Depends(authenticate)):
+    """Golden-set runs, for the quality review screen.
+
+    abc.md:344 - "Golden-set runs, failure clusters, multilingual cases,
+    contradiction cases, and side-by-side memory-enabled comparisons."
+    abc.md:361 - release is blocked if provenance falls below threshold, so
+    the scores are stored rather than printed and lost.
+
+    Counts and scores only. A golden case names memory identifiers and
+    categories, never anybody's stored text.
+    """
+    runs = db.golden_runs()
+    return {
+        "runs": runs,
+        # The newest run's cases, so the screen can cluster failures without
+        # a second request.
+        "cases": db.golden_cases(runs[0]["run_id"]) if runs else [],
+        # abc.md:344 - the memory-disabled arm the comparison needs.
+        "experiment": db.experiment_status(),
+    }
 
 
 # --- Correction and deletion ---------------------------------------------

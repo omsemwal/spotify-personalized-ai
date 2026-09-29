@@ -181,8 +181,27 @@ def fit_budget(items: list[ContextItem], budget: int,
 
 # Build the whole package for one request.
 def compose(memories: list[RankedMemory], surface: str, token_budget: int,
-            trace_id: str, healthy: bool = True) -> ContextPackage:
+            trace_id: str, healthy: bool = True,
+            memory_disabled: bool = False) -> ContextPackage:
     removed: list[str] = []
+
+    # abc.md:146 - the memory-disabled arm of the experiment. This subject
+    # is deliberately answered without memory, so abc.md:344 has a baseline
+    # to compare the memory-enabled arm against.
+    #
+    # It takes the same path as every other no-memory answer, which is the
+    # point: the baseline must behave exactly like a real fallback, not like
+    # a special case.
+    if memory_disabled:
+        return ContextPackage(
+            no_memory=True,
+            reason="memory-disabled experiment cohort",
+            context_block=NO_MEMORY_NOTE,
+            items=[],
+            removed=["all: memory-disabled experiment cohort"],
+            token_estimate=estimate_tokens(NO_MEMORY_NOTE),
+            trace_id=trace_id,
+        )
 
     # abc.md:135 - if system health is insufficient, return no-memory
     # rather than a partial or stale package.

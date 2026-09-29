@@ -119,6 +119,16 @@ def repetition_score(evidence_count: int) -> float:
     return min(1.0, (evidence_count or 1) / 3)
 
 
+# Turn a Neo4j temporal value into a plain datetime, or None.
+def as_datetime(value):
+    """The driver returns its own DateTime type. Pydantic wants a real
+    datetime, and a missing value must stay None rather than becoming a
+    misleading zero date."""
+    if value is None:
+        return None
+    return value.to_native() if hasattr(value, "to_native") else value
+
+
 # Combine the seven signals into one score.
 def rank_one(memory: dict, similarity: float, now: datetime,
              negative: set[str]) -> RankedMemory:
@@ -142,6 +152,14 @@ def rank_one(memory: dict, similarity: float, now: datetime,
         signals={k: round(v, 4) for k, v in signals.items()},
         entities=memory.get("entity_ids", []),
         evidence_count=memory.get("evidence_count") or 1,
+
+        # abc.md:340 - the memory explorer needs a timeline and a status.
+        # The graph already stores all four (abc.md:117); they were simply
+        # not being carried through to the response.
+        recorded_at=as_datetime(memory.get("recorded_at")),
+        valid_from=as_datetime(memory.get("valid_from")),
+        valid_to=as_datetime(memory.get("valid_to")),
+        status=memory.get("status") or "active",
     )
 
 

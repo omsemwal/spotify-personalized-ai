@@ -60,6 +60,24 @@ def forget(subject_id: str, idempotency_key: str) -> None:
     client().delete(_key(subject_id, idempotency_key))
 
 
+def forget_subject(subject_id: str) -> int:
+    """Drop everything cached for one subject, and say how many keys went.
+
+    abc.md:141 - "deletion propagation, cache invalidation" are part of
+    honouring a change. A listener who pauses or opts out must not then be
+    answered from a cache that was warmed while consent was granted.
+
+    SCAN rather than KEYS, because KEYS blocks the whole server while it
+    walks the keyspace and this runs on a live request path.
+    """
+    pattern = config.redis_key("*", subject_id, "*")
+    conn = client()
+    removed = 0
+    for key in conn.scan_iter(match=pattern, count=100):
+        removed += conn.delete(key)
+    return removed
+
+
 # --- Rate limiting --------------------------------------------------------
 #
 # abc.md:356 lists rate limits as a security test area, and abc.md:128
