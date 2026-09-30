@@ -87,7 +87,7 @@ If they ran in one process, a slow model call would make the listener wait.
 ## Checking it works
 
 ```bash
-python -m pytest -q                    # 388 tests, about 80 seconds
+python -m pytest -q                    # 401 tests, about 80 seconds
 python scripts/verify_endpoints.py     # all 10 endpoints vs the requirements
 ```
 
@@ -152,12 +152,37 @@ curl -X POST http://127.0.0.1:8000/v1/context/compose \
 ## Checking it works
 
 ```bash
-python -m pytest -q                    # 388 tests, about 80 seconds
+python -m pytest -q                    # 401 tests, about 80 seconds
 python scripts/verify_endpoints.py     # all 10 endpoints vs the requirements
 ```
 
 The second one is the better demo: 62 checks, each naming the `abc.md` line it
 comes from.
+
+---
+
+## The MCP server - the five tools for a model
+
+```bash
+python -m memory.mcp_server user_001
+```
+
+It speaks MCP over stdio, so an MCP client starts it. It is bound to the one
+subject given, and calls the API in-process - the API does not need to be
+running, the stores do. See `docs/mcp-tools.doc.md`.
+
+---
+
+## On this machine: which Neo4j
+
+Two old projects also have a Neo4j container. Only `memory_system_neo4j`
+matches `.env`. If the worker logs `Neo.ClientError.Security.Unauthorized`,
+another one has taken port 7687:
+
+```bash
+docker stop memory-neo4j
+docker start memory_system_neo4j
+```
 
 ---
 

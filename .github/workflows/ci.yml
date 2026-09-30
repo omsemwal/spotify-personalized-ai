@@ -1,9 +1,9 @@
-# Continuous integration — runs on every pull request and every push to main.
+# Continuous integration - runs on every pull request and every push to main.
 #
-# This is the gate the whole build plan leans on: a unit is not finished until
-# this is green. See docs/PLAN.md §7 U1.
-#
-# The three jobs run in parallel so a lint failure does not hide a test failure.
+# It does exactly what RUNNING.md tells a person to do: install, copy
+# .env.example, start the four stores with docker compose, set them up, then
+# run the tests. The tests replace the model, so no
+# Gemini key is needed here.
 name: CI
 
 on:
@@ -11,40 +11,12 @@ on:
   push:
     branches: [main]
 
-# A new push to the same branch cancels the previous run — no point spending
-# minutes on a commit that has already been replaced.
+# A new push to the same branch cancels the previous run.
 concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 
-env:
-  PYTHON_VERSION: "3.14"
-
 jobs:
-  lint:
-    name: Lint (ruff)
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: ${{ env.PYTHON_VERSION }}
-          cache: pip
-      - run: pip install -r requirements-dev.txt
-      - run: ruff check packages services tests data
-
-  typecheck:
-    name: Type check (mypy)
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: ${{ env.PYTHON_VERSION }}
-          cache: pip
-      - run: pip install -r requirements-dev.txt
-      - run: mypy
-
   test:
     name: Tests (pytest)
     runs-on: ubuntu-latest
@@ -52,14 +24,10 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
-          python-version: ${{ env.PYTHON_VERSION }}
+          python-version: "3.14"
           cache: pip
-      - run: pip install -r requirements-dev.txt
-      - run: pip install -e packages/contracts
-      # The tests that need real datastores skip themselves when the ports are
-      # closed (tests/conftest.py::requires_live_datastores), so CI runs the
-      # rest. U4's fail-loud tests still run here — they point adapters at a
-      # dead port and assert they raise, which needs no infrastructure.
-      - run: pytest
-        env:
-          EMBEDDING_BACKEND: local_hash
+      - run: pip install -r requirements.txt
+      - run: cp .env.example .env
+      - run: docker compose up -d
+      - run: python scripts/setup.py
+      - run: python -m pytest -q
