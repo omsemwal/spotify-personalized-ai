@@ -14,3 +14,6 @@
 *.png binary
 *.jpg binary
 *.ico binary
+# Windows batch files must keep Windows line endings (CRLF), or cmd.exe can
+# misread them after a fresh clone.
+*.cmd text eol=crlf
