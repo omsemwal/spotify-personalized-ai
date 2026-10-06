@@ -18,13 +18,17 @@ Everything in this file is subject-scoped. Every query names the subject,
 so no read can cross from one listener to another (abc.md:119).
 """
 
+import os
 import uuid
 from datetime import datetime, timezone
 
-from dotenv import dotenv_values
+from dotenv import load_dotenv
 from neo4j import GraphDatabase
 
-_env = dotenv_values(".env")
+# Locally the settings come from .env; on a server (Render) they are real
+# environment variables and there is no .env. load_dotenv fills in from .env
+# only what the environment does not already set, so both work.
+load_dotenv()
 _driver = None
 
 
@@ -33,8 +37,9 @@ def driver():
     global _driver
     if _driver is None:
         _driver = GraphDatabase.driver(
-            _env.get("NEO4J_URI", "bolt://localhost:7687"),
-            auth=(_env.get("NEO4J_USER", "neo4j"), _env.get("NEO4J_PASSWORD", "")),
+            os.environ.get("NEO4J_URI", "bolt://localhost:7687"),
+            auth=(os.environ.get("NEO4J_USER", "neo4j"),
+                  os.environ.get("NEO4J_PASSWORD", "")),
         )
     return _driver
 
