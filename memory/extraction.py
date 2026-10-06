@@ -121,7 +121,7 @@ def validate(raw: dict, event: dict) -> tuple[CandidateMemory | None, str | None
             reason=str(raw.get("reason") or "")[:300],
             # abc.md:115 - the policy class comes from our registry, keyed
             # on the memory type. The model has no say in it.
-            policy=policy.classify(memory_type),
+            policy=policy.classify(memory_type, subject_id=event.get("subject_id")),
             # abc.md:114 - lineage starts with the event it came from.
             source_event_ids=[event["event_id"]] if event.get("event_id") else [],
         ),

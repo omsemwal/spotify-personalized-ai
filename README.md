@@ -63,6 +63,19 @@ python scripts/verify_endpoints.py   # all 10 endpoints against the requirements
 
 **Deployed link:** _to be added_
 
+How to deploy:
+
+| Part | Where | How |
+|---|---|---|
+| API, worker, PostgreSQL, Redis | Render | New -> Blueprint -> this repo. [render.yaml](render.yaml) creates all four; type the secrets it asks for |
+| Neo4j | Neo4j AuraDB (free) | put its `neo4j+s://` URI and password into Render |
+| Kafka | Redpanda Cloud | create topics `interaction-events` and `interaction-events-dlq`; put the address, username and password into Render |
+| Frontend | Netlify (or Vercel) | the frontend repo's `netlify.toml` builds `apps/memory-console`; set `MEMORY_API_BASE_URL` and the same `MEMORY_JWT_SECRET` |
+
+Only settings change between local and deployed - the code is the same.
+`scripts/setup.py` runs before each deploy and creates the tables, Neo4j
+indexes and demo logins in the new, empty stores.
+
 **Demo video (Google Drive, "anyone with the link can view"):** _to be added_
 
 ---
@@ -103,11 +116,31 @@ How it works end to end: [docs/HOW_IT_WORKS.md](docs/HOW_IT_WORKS.md).
 
 In the frontend repository, https://github.com/omsemwal/spotify-fronted:
 
-- **Memory console** (http://localhost:3000) - the seven operator screens:
-  overview, memory explorer, context preview, correction and deletion,
-  schema and policy, quality review, audit trace.
-- **Memory controls** (http://localhost:3001) - the listener's review,
-  correct, remove, pause and opt-out.
+- **Memory console** (http://localhost:3000) - **the one app to use.** Log in,
+  then all seven screens - overview, memory explorer, context preview (with a
+  "Tell Spotify's AI" box and a songs demo), correction and deletion, schema
+  and policy, quality review, audit trace - show **only your own data**. The
+  top bar turns memory on, pauses it or switches it off.
+- **Memory controls** (http://localhost:3001) - the listener review page
+  `abc.md:253` names, with the same login. Everything it does is also in the
+  console.
+
+### Logging in
+
+| | |
+|---|---|
+| New listener | Sign up on http://localhost:3000/login - pick a user id nobody has (lower-case letters, digits, `_`), and a password of 8+ characters |
+| Test users | `user_001` ... `user_005`, password `demo1234` (demo only) |
+
+How it is kept safe (`memory/accounts.py`):
+
+- passwords are stored only as a salted scrypt hash, never as text
+- a taken user id is refused, so nobody can sign up as somebody else
+- 5 wrong passwords pause logins for that id for 15 minutes
+- a login gives a 15-minute pass, kept in an httpOnly cookie the page cannot read
+- every request is checked twice: the pass is genuine and unexpired
+  (authentication), and it belongs to the listener whose data is asked for
+  (authorization - `SUBJECT_MISMATCH` otherwise)
 
 ---
 
@@ -181,6 +214,7 @@ All in `.env.example`, already matching what `docker compose` starts.
 | `REDIS_*` | Idempotency keys and rate limits |
 | `NEO4J_URI` / `NEO4J_USER` / `NEO4J_PASSWORD` | Graph and vector store |
 | `KAFKA_BOOTSTRAP` | `localhost:19092`, Redpanda's external listener |
+| `KAFKA_USERNAME` / `KAFKA_PASSWORD` / `KAFKA_SASL_MECHANISM` | Only for a hosted Kafka; empty locally |
 | `GEMINI_API_KEY` | The model for extraction (endpoint 2 and the worker) |
 
 ---
@@ -209,12 +243,19 @@ _To be added: the console's seven screens and the controls app._
 1. **No LLM answer is generated.** `POST /v1/context/compose` returns the
    context package an AI orchestrator would consume; the orchestrator is
    outside this repository.
-2. **Auth is a pilot token** minted with a shared secret
-   (`scripts/make_token.py`), standing in for the gateway that would verify a
-   real Spotify session.
+2. **Login is a pilot stand-in for Spotify's.** `abc.md` assumes the gateway
+   verifies an existing Spotify session; here `POST /auth/signup` and
+   `POST /auth/login` (user id and password) do that job. Service-to-service
+   calls still use a token minted with the shared secret
+   (`scripts/make_token.py`).
 3. **Extraction needs a Gemini key.** Without one, endpoint 2 returns a clean
    503 and the other nine work.
 4. **Not deployed.** It runs locally with `docker compose`.
+5. **Surface policy is a filter, not a score.** `abc.md` §5.4 lists seven
+   ranking signals. Six are scored (`memory/retrieval.py`); the seventh,
+   surface policy, removes a memory outright when the surface may not use it,
+   because a memory the policy forbids must never reach the AI however well
+   it scores.
 
 ---
 

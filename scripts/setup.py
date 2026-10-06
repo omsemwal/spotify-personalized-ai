@@ -95,6 +95,12 @@ def main() -> int:
     print("-" * 50)
     apply_postgres_migrations()
 
+    # The five test users get a demo password so the listener app can log
+    # in as them (memory/accounts.py). Existing accounts are left alone.
+    from memory import accounts
+    made = accounts.ensure_demo_accounts()
+    print(f"  demo logins: {made} created, password '{accounts.DEMO_PASSWORD}'")
+
     print("\nPreparing Neo4j")
     print("-" * 50)
     prepare_neo4j()

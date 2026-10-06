@@ -262,6 +262,38 @@ class DeletionStatus(BaseModel):
     error: str | None = None
 
 
+class SignupRequest(BaseModel):
+    """What POST /auth/signup accepts - a new listener account.
+
+    A pilot stand-in for Spotify's login (memory/accounts.py). Signing up
+    also switches memory on, which is the listener's consent (abc.md:53).
+    """
+
+    # Unique, and the listener's id everywhere in the system.
+    subject_id: str = Field(pattern=r"^[a-z0-9_]{3,40}$",
+                            description="3-40 lower-case letters, digits or _")
+    password: str = Field(min_length=8, max_length=128)
+
+    # Optional; only used to shorten retention (memory/retention_rules.py).
+    region: str | None = Field(default=None, pattern=r"^[A-Za-z]{2}$")
+    age_band: Literal["adult", "under_18"] | None = None
+
+
+class LoginRequest(BaseModel):
+    """What POST /auth/login accepts."""
+
+    subject_id: str = Field(min_length=1, max_length=40)
+    password: str = Field(min_length=1, max_length=128)
+
+
+class LoginResult(BaseModel):
+    """A pass for one listener. Send it as "Authorization: Bearer <token>"."""
+
+    subject_id: str
+    token: str
+    expires_in_seconds: int
+
+
 class ConsentRequest(BaseModel):
     """What PATCH /v1/consent accepts.
 
@@ -283,6 +315,12 @@ class ConsentRequest(BaseModel):
 
     subject_id: str = Field(min_length=1)
     state: Literal["granted", "paused", "denied"]
+
+    # Optional, usually sent once when a user is created. Used only to
+    # shorten retention (memory/retention_rules.py, abc.md §5.4).
+    region: str | None = Field(default=None, pattern=r"^[A-Za-z]{2}$",
+                               description="Two-letter country code, e.g. DE")
+    age_band: Literal["adult", "under_18"] | None = None
 
 
 class ConsentState(BaseModel):

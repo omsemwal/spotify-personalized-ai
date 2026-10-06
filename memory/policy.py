@@ -22,6 +22,7 @@ from pathlib import Path
 
 import yaml
 
+from memory import retention_rules
 from memory.models import MEMORY_TYPES, PolicyClass
 
 REGISTRY_PATH = Path(__file__).parent.parent / "data" / "policy_registry.yaml"
@@ -55,21 +56,29 @@ def registry() -> dict:
     return entries
 
 
-def classify(memory_type: str, now: datetime | None = None) -> PolicyClass:
+def classify(memory_type: str, now: datetime | None = None,
+             subject_id: str | None = None) -> PolicyClass:
     """Give one memory its policy class, from its type.
 
     abc.md:139 - "Apply retention BY MEMORY TYPE". The class comes from
     what kind of memory it is, never from a judgement about the individual
     memory, so the same kind is always treated the same way.
+
+    When the subject is given, geography and age can shorten retention
+    further (abc.md §5.4) - see memory/retention_rules.py.
     """
     entry = registry()[memory_type]
     now = now or datetime.now(timezone.utc)
 
+    days = entry["retention_days"]
+    if subject_id:
+        days, _ = retention_rules.limit_for_subject(days, subject_id)
+
     return PolicyClass(
         sensitivity=entry["sensitivity"],
-        retention_days=entry["retention_days"],
+        retention_days=days,
         retrieval_eligibility=list(entry["retrieval_eligibility"]),
-        expires_at=now + timedelta(days=entry["retention_days"]),
+        expires_at=now + timedelta(days=days),
     )
 
 

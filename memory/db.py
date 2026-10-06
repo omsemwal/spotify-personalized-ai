@@ -127,6 +127,51 @@ def delete_events(subject_id: str) -> None:
         )
 
 
+# A subject's region and age band, for memory/retention_rules.py.
+def get_region_and_age(subject_id: str) -> tuple[str | None, str]:
+    """No record means nothing is known: no region, treated as an adult."""
+    with connect() as conn:
+        row = conn.execute(
+            "SELECT region, age_band FROM consent WHERE subject_id = %s",
+            (subject_id,),
+        ).fetchone()
+    return (row[0], row[1]) if row else (None, "adult")
+
+
+# Record a subject's region and age band, when they are given.
+def set_region_and_age(subject_id: str, region: str | None, age_band: str | None) -> None:
+    with connect() as conn:
+        if region is not None:
+            conn.execute("UPDATE consent SET region = %s WHERE subject_id = %s",
+                         (region.upper(), subject_id))
+        if age_band is not None:
+            conn.execute("UPDATE consent SET age_band = %s WHERE subject_id = %s",
+                         (age_band, subject_id))
+
+
+# Every subject with a consent record, for the console's subject picker.
+def list_subjects() -> list[dict]:
+    """Only the id, consent, when it was set, experiment group, region and
+    age band - nothing else is kept about a person (abc.md:53, purpose limitation and minimization).
+    The golden set's own test subjects are left out; they belong to the
+    quality run, not to anyone an operator would pick.
+    """
+    with connect() as conn:
+        rows = conn.execute(
+            "SELECT c.subject_id, c.state, c.updated_at, e.cohort, c.region, c.age_band"
+            " FROM consent c"
+            " LEFT JOIN experiment_cohort e ON e.subject_id = c.subject_id"
+            " WHERE c.subject_id NOT LIKE 'golden\\_%%'"
+            " ORDER BY c.subject_id"
+        ).fetchall()
+    # No allocation means memory_enabled, the same rule as cohort_of().
+    return [
+        {"subject_id": subject_id, "consent": state, "updated_at": updated_at,
+         "cohort": cohort or "memory_enabled", "region": region, "age_band": age_band}
+        for subject_id, state, updated_at, cohort, region, age_band in rows
+    ]
+
+
 def set_consent(subject_id: str, state: str) -> None:
     """Set a subject's consent. Used by tests and by seeding."""
     with connect() as conn:

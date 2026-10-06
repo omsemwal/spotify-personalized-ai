@@ -87,7 +87,7 @@ def store_candidate(subject_id: str, candidate, event_id: str) -> dict:
         "fact": candidate.fact,
         "confidence": candidate.confidence,
         "entities": [e.model_dump() for e in candidate.entities],
-        "policy": policy.classify(candidate.memory_type).model_dump(mode="json"),
+        "policy": policy.classify(candidate.memory_type, subject_id=subject_id).model_dump(mode="json"),
         "source_event_ids": candidate.source_event_ids or [event_id],
         "evidence_count": candidate.evidence_count,
     }
@@ -148,6 +148,20 @@ def run_once(max_messages: int = 100) -> dict:
                 logger.exception("event_id=%s failed", body.get("event_id"))
                 queue.publish_dead_letter(body, f"{type(exc).__name__}: {exc}")
                 failed += 1
+                # Counted as a write failure by memory/monitoring.py. If the
+                # database itself is what failed, this cannot be written -
+                # that must not stop the worker either.
+                try:
+                    db.record_audit(
+                        action="processor.failed",
+                        subject_id=body.get("subject_id", ""),
+                        service_id="memory-processor",
+                        outcome="failed",
+                        correlation_id=body.get("correlation_id", ""),
+                        event_id=body.get("event_id"),
+                    )
+                except Exception:  # noqa: BLE001
+                    logger.exception("could not audit the failure")
 
             # Mark done only now, after the work actually happened.
             consumer.commit()

@@ -16,6 +16,7 @@ from fastapi.exceptions import RequestValidationError
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from memory import (
+    accounts,
     cache,
     composer,
     db,
@@ -25,16 +26,23 @@ from memory import (
     entities as entity_resolver,
     errors,
     extraction,
+    fail_open,
     graph,
+    memory_types,
     model_client,
+    monitoring,
     policy,
     queue,
+    retention_rules,
     trace as trace_service,
     retrieval,
 )
-from memory.auth import Caller, authenticate, bind_subject
+from memory.auth import TOKEN_LIFETIME, Caller, authenticate, bind_subject, mint_token
 from memory.models import (
     ConsentRequest,
+    LoginRequest,
+    LoginResult,
+    SignupRequest,
     ConsentState,
     SUPPORTED_SCHEMA_VERSION,
 )
@@ -136,8 +144,11 @@ def metrics(caller: Caller = Depends(authenticate)):
 
     Counts only. No subject ids, no event content - this is an
     operational view, not a window into anyone's data.
+
+    Write failures, cache effectiveness and policy rejection rate come from
+    memory/monitoring.py.
     """
-    return db.ingestion_metrics()
+    return {**db.ingestion_metrics(), **monitoring.summary()}
 
 
 # --- Write path -----------------------------------------------------------
@@ -361,7 +372,7 @@ def create_memory(
     # Resolve names to catalog ids (abc.md:113) and stamp the policy class
     # from the registry (abc.md:115). Neither is taken from the caller.
     resolved = entity_resolver.resolve_all(request.entities)
-    policy_class = policy.classify(request.memory_type)
+    policy_class = policy.classify(request.memory_type, subject_id=request.subject_id)
 
     candidate = {
         "memory_type": request.memory_type,
@@ -573,7 +584,9 @@ def compose_context(
         )
         return package
 
-    found = retrieval.search(
+    # abc.md §5.5 - if the stores are down, answer without memory rather
+    # than fail. See memory/fail_open.py.
+    found, failure = fail_open.search_or_nothing(
         subject_id=request.subject_id,
         intent=request.intent,
         surface=request.surface,
@@ -586,7 +599,10 @@ def compose_context(
         surface=request.surface,
         token_budget=request.token_budget,
         trace_id=trace_id,
+        healthy=failure is None,
     )
+    if failure:
+        package.reason = f"memory unavailable ({failure}) - answered without memory"
     # Anything retrieval dropped is part of the same story.
     package.removed = found["removed"] + package.removed
 
@@ -648,6 +664,14 @@ def policy_registry(caller: Caller = Depends(authenticate)):
         # Every memory type, with the three fields abc.md:292 requires.
         "memory_types": policy.registry(),
 
+        # Definition, example and counterexample per type - abc.md §7.2
+        # step 1. See memory/memory_types.py.
+        "definitions": memory_types.definitions(),
+
+        # Geography and age limits on retention - abc.md §5.4. See
+        # memory/retention_rules.py.
+        "retention_rules": retention_rules.rules(),
+
         # The surfaces a memory can be eligible on. abc.md:108 fixes these.
         "surfaces": ["chat", "player", "search"],
 
@@ -655,6 +679,90 @@ def policy_registry(caller: Caller = Depends(authenticate)):
         # live; saying so is more useful than an invented staging flag.
         "rollout_state": "live",
     }
+
+
+# --- Listener login --------------------------------------------------------
+#
+# A pilot stand-in for Spotify's login - see memory/accounts.py. These two are
+# the only endpoints, besides /health, that need no token: they are how a
+# listener gets one.
+
+# Which service the listener app's passes are issued to.
+LISTENER_SERVICE = "listener-app"
+
+
+@app.post("/auth/signup", response_model=LoginResult)
+def signup(request: SignupRequest):
+    """Create a listener account and log straight in.
+
+    The user id must be new - not an existing account, not an existing
+    subject - so nobody can sign up as somebody who already exists. Signing
+    up switches memory on (the consent record), stores region and age band
+    if given, and returns a pass for this listener only.
+    """
+    trace_id = errors.correlation_id.get()
+
+    if accounts.id_taken(request.subject_id):
+        raise HTTPException(
+            status_code=409,
+            detail=errors.error(errors.CONFLICT, "that user id is already taken"),
+        )
+
+    accounts.create_account(request.subject_id, request.password)
+    db.set_consent(request.subject_id, "granted")
+    db.set_region_and_age(request.subject_id, request.region, request.age_band)
+
+    # Never the password - only that an account was made.
+    db.record_audit(
+        action="account.created", subject_id=request.subject_id,
+        service_id=LISTENER_SERVICE, outcome="created", correlation_id=trace_id,
+    )
+    return LoginResult(
+        subject_id=request.subject_id,
+        token=mint_token(request.subject_id, LISTENER_SERVICE),
+        expires_in_seconds=int(TOKEN_LIFETIME.total_seconds()),
+    )
+
+
+@app.post("/auth/login", response_model=LoginResult)
+def login(request: LoginRequest):
+    """Check a user id and password, and return a pass for that listener.
+
+    A wrong user id and a wrong password get the same answer, so the
+    response never reveals which ids exist. Five wrong passwords pause
+    logins for that id for 15 minutes.
+    """
+    trace_id = errors.correlation_id.get()
+    subject_id = request.subject_id.strip().lower()
+
+    if accounts.is_locked(subject_id):
+        raise HTTPException(
+            status_code=429,
+            detail=errors.error(errors.RATE_LIMITED,
+                                "too many wrong passwords - try again in 15 minutes"),
+        )
+
+    if not accounts.check_login(subject_id, request.password):
+        accounts.record_failure(subject_id)
+        db.record_audit(
+            action="login.failed", subject_id=subject_id,
+            service_id=LISTENER_SERVICE, outcome="rejected", correlation_id=trace_id,
+        )
+        raise HTTPException(
+            status_code=401,
+            detail=errors.error(errors.UNAUTHENTICATED, "wrong user id or password"),
+        )
+
+    accounts.clear_failures(subject_id)
+    db.record_audit(
+        action="login.succeeded", subject_id=subject_id,
+        service_id=LISTENER_SERVICE, outcome="ok", correlation_id=trace_id,
+    )
+    return LoginResult(
+        subject_id=subject_id,
+        token=mint_token(subject_id, LISTENER_SERVICE),
+        expires_in_seconds=int(TOKEN_LIFETIME.total_seconds()),
+    )
 
 
 # --- Consent: pause and opt out -------------------------------------------
@@ -677,6 +785,8 @@ CONSENT_MEANING = {
               "experience carries on without it.",
     "denied": "Memory is switched off. Nothing new is captured and nothing "
               "stored is used.",
+    "not_set": "Memory has not been switched on yet. Nothing is captured "
+               "until it is.",
 }
 
 
@@ -688,7 +798,9 @@ def get_consent_state(subject_id: str, caller: Caller = Depends(authenticate)):
     meaning travels with the state so every surface says the same thing.
     """
     bind_subject(caller, subject_id)
-    state = db.get_consent(subject_id) or "granted"
+    # No record means nobody has switched memory on yet - and events are
+    # refused until they do - so say that rather than claim "granted".
+    state = db.get_consent(subject_id) or "not_set"
     return ConsentState(
         subject_id=subject_id,
         state=state,
@@ -717,8 +829,10 @@ def set_consent_state(
     bind_subject(caller, request.subject_id)
     trace_id = errors.correlation_id.get()
 
-    previous = db.get_consent(request.subject_id) or "granted"
+    previous = db.get_consent(request.subject_id) or "not_set"
     db.set_consent(request.subject_id, request.state)
+    # Region and age band, when given, for memory/retention_rules.py.
+    db.set_region_and_age(request.subject_id, request.region, request.age_band)
 
     # abc.md:322 - a consent change is exactly the kind of decision an audit
     # trail exists for. Written inline rather than as a background task so it
@@ -766,6 +880,22 @@ def quality_runs(caller: Caller = Depends(authenticate)):
         # abc.md:344 - the memory-disabled arm the comparison needs.
         "experiment": db.experiment_status(),
     }
+
+
+# --- Subjects --------------------------------------------------------------
+
+@app.get("/subjects")
+def list_subjects(caller: Caller = Depends(authenticate)):
+    """Every subject with a consent record, for the console's subject picker.
+
+    abc.md:340 - the console looks only at "approved support or test
+    identities". A subject becomes one by having a consent record, which is
+    created through PATCH /v1/consent, so the picker lists exactly those.
+
+    Only the id, the consent state, when it was set and the experiment
+    group - nothing else is kept about a person (abc.md:53).
+    """
+    return {"subjects": db.list_subjects()}
 
 
 # --- Correction and deletion ---------------------------------------------
@@ -840,7 +970,7 @@ def update_memory(
             "fact": request.fact,
             "confidence": request.confidence,
             "entities": [e.model_dump() for e in resolved],
-            "policy": policy.classify("correction").model_dump(mode="json"),
+            "policy": policy.classify("correction", subject_id=request.subject_id).model_dump(mode="json"),
             "source_event_ids": existing.get("source_event_ids", []),
             "evidence_count": 1,
         }

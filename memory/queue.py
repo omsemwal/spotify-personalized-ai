@@ -33,6 +33,29 @@ load_dotenv()
 # `redpanda:9092`, a hostname only other containers can resolve.
 BOOTSTRAP = os.environ.get("KAFKA_BOOTSTRAP", "localhost:19092")
 
+
+# Login settings for a hosted Kafka (Redpanda Cloud, Confluent Cloud).
+def connection_settings() -> dict:
+    """Locally, Redpanda in Docker needs no login, so this returns nothing
+    and the queue connects exactly as before.
+
+    A hosted Kafka needs a username and password over TLS. Set these three
+    and they are used for every producer and consumer:
+        KAFKA_USERNAME, KAFKA_PASSWORD
+        KAFKA_SASL_MECHANISM   SCRAM-SHA-256 (Redpanda Cloud, the default)
+                               or PLAIN (Confluent Cloud)
+    """
+    username = os.environ.get("KAFKA_USERNAME", "").strip()
+    if not username:
+        return {}
+    return {
+        "security_protocol": "SASL_SSL",
+        "sasl_mechanism": os.environ.get("KAFKA_SASL_MECHANISM", "SCRAM-SHA-256"),
+        "sasl_plain_username": username,
+        "sasl_plain_password": os.environ.get("KAFKA_PASSWORD", ""),
+    }
+
+
 TOPIC = "interaction-events"
 DEAD_LETTER_TOPIC = "interaction-events-dlq"
 
@@ -52,6 +75,7 @@ def producer():
             # must not vanish because the broker had not written it yet.
             acks="all",
             retries=3,
+            **connection_settings(),
         )
     return _producer
 
@@ -101,15 +125,18 @@ def publish_dead_letter(message: dict, error: str) -> None:
 
 
 # Make a consumer for the processor to read with.
-def consumer(group_id: str = "memory-processor", timeout_ms: int = 1000):
+def consumer(group_id: str = "memory-processor", timeout_ms: int = 1000,
+             topic: str = TOPIC):
     """abc.md:207 - "consumer isolation". The group id is how Redpanda
     knows which messages this worker has already handled, so a restart
     resumes rather than reprocessing everything.
     """
     from kafka import KafkaConsumer
 
+    # topic is the main queue for the worker, or DEAD_LETTER_TOPIC for
+    # scripts/replay_dead_letters.py.
     return KafkaConsumer(
-        TOPIC,
+        topic,
         bootstrap_servers=BOOTSTRAP,
         group_id=group_id,
         value_deserializer=lambda v: json.loads(v.decode("utf-8")),
@@ -119,4 +146,5 @@ def consumer(group_id: str = "memory-processor", timeout_ms: int = 1000):
         # Only mark a message done after it has actually been processed.
         enable_auto_commit=False,
         consumer_timeout_ms=timeout_ms,
+        **connection_settings(),
     )
