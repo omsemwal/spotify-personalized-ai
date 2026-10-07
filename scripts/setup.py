@@ -13,6 +13,7 @@ be repeatable.
 """
 
 import glob
+import os
 import sys
 import time
 from pathlib import Path
@@ -95,11 +96,12 @@ def main() -> int:
     print("-" * 50)
     apply_postgres_migrations()
 
-    # The five test users get a demo password so the listener app can log
-    # in as them (memory/accounts.py). Existing accounts are left alone.
+    # The five test users get a login only when DEMO_PASSWORD is set in the
+    # private .env (memory/accounts.py). Existing accounts are left alone.
     from memory import accounts
     made = accounts.ensure_demo_accounts()
-    print(f"  demo logins: {made} created, password '{accounts.DEMO_PASSWORD}'")
+    print(f"  test-user logins created: {made}"
+          + ("" if made or os.environ.get("DEMO_PASSWORD") else " (DEMO_PASSWORD not set)"))
 
     print("\nPreparing Neo4j")
     print("-" * 50)

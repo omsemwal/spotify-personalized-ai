@@ -26,18 +26,21 @@ are refused for 15 minutes.
 Where it is used
 ----------------
 memory/api.py - POST /auth/signup and POST /auth/login.
-scripts/setup.py - gives the five seeded test users a demo password.
+scripts/setup.py - gives the five seeded test users a login when DEMO_PASSWORD
+is set (local testing only).
 """
 
 import hashlib
 import hmac
+import os
 import secrets
 
 from memory import cache, config, db
 
-# The five seeded test users all get this password, so the demo can log in
-# as each of them. Written in the README; never use it for a real account.
-DEMO_PASSWORD = "demo1234"
+# The five seeded test users can be given a login for local testing. Their
+# password comes from DEMO_PASSWORD in the private .env - never from the code
+# or the docs, which are public. Unset (the default on a server), the test
+# users get no login at all, so the only accounts are people who signed up.
 DEMO_USERS = ("user_001", "user_002", "user_003", "user_004", "user_005")
 
 # Wrong passwords allowed per user id before logins are paused.
@@ -125,8 +128,11 @@ def clear_failures(subject_id: str) -> None:
     cache.client().delete(_failures_key(subject_id))
 
 
-# Give the seeded test users their demo password, if they have no account yet.
-def ensure_demo_accounts() -> int:
+# Give the seeded test users a login, only if DEMO_PASSWORD is set.
+def ensure_demo_accounts(password: str | None = None) -> int:
+    password = password or os.environ.get("DEMO_PASSWORD", "").strip()
+    if not password:
+        return 0
     created = 0
     for subject_id in DEMO_USERS:
         with db.connect() as conn:
@@ -134,6 +140,6 @@ def ensure_demo_accounts() -> int:
                 "SELECT 1 FROM account WHERE subject_id = %s", (subject_id,)
             ).fetchone()
         if not exists:
-            create_account(subject_id, DEMO_PASSWORD)
+            create_account(subject_id, password)
             created += 1
     return created

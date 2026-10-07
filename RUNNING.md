@@ -220,9 +220,10 @@ In production both belong on a schedule.
 
 ## The test subjects
 
-Seeded by the migration, so there is always something to try. All five log
-in to the web app with password `demo1234`; anyone else signs up with their
-own user id.
+Seeded by the migration, so there is always something to try. To log in to
+the web app as them, set `DEMO_PASSWORD` in your private `.env` and run
+`python scripts/setup.py` - they get that password. Anyone else signs up with
+their own user id.
 
 | Subject | Consent | Use for |
 |---|---|---|

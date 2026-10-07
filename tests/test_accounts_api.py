@@ -103,10 +103,9 @@ def test_five_wrong_passwords_pause_logins():
     assert r.status_code == 429
 
 
-def test_the_demo_users_can_log_in():
-    r = client.post("/auth/login",
-                    json={"subject_id": "user_002", "password": accounts.DEMO_PASSWORD})
-    assert r.status_code == 200
+def test_test_users_get_no_login_without_a_demo_password(monkeypatch):
+    monkeypatch.delenv("DEMO_PASSWORD", raising=False)
+    assert accounts.ensure_demo_accounts() == 0
 
 
 # --- What a pass opens -------------------------------------------------------

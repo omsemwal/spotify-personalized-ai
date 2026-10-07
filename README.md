@@ -25,16 +25,8 @@ valid time, and can be corrected or deleted.
 
 ## Try it
 
-Open the app, then **sign up** with a user id nobody has (lower-case letters,
-digits, `_`) and a password of 8+ characters - or log in as a test user:
-
-| User | Password | Shows |
-|---|---|---|
-| `user_001` | `demo1234` | normal use |
-| `user_002` | `demo1234` | a second listener - cannot see `user_001`'s memories |
-| `user_003` | `demo1234` | memory-disabled experiment arm - always answered without memory |
-| `user_004` | `demo1234` | consent denied |
-| `user_005` | `demo1234` | consent paused - the no-memory fallback |
+Open the app and **sign up** with a user id nobody has (lower-case letters,
+digits, `_`) and a password of 8+ characters. You only ever see your own data.
 
 Then on **Context preview**: *Tell Spotify's AI* something like "I love Arijit
 Singh romantic songs, but no heavy metal", wait a few seconds, and ask "play
@@ -212,6 +204,7 @@ All in `.env.example`, already matching what `docker compose` starts.
 | `NEO4J_URI` / `NEO4J_USER` / `NEO4J_PASSWORD` | Neo4j |
 | `KAFKA_BOOTSTRAP` | The Kafka / Redpanda address (`localhost:19092` locally) |
 | `KAFKA_USERNAME` / `KAFKA_PASSWORD` / `KAFKA_SASL_MECHANISM` | Only for a hosted Kafka; empty locally |
+| `DEMO_PASSWORD` | Local testing only: gives `user_001` ... `user_005` this login password. Leave unset on a server |
 
 ---
 
@@ -225,8 +218,10 @@ All in `.env.example`, already matching what `docker compose` starts.
 | Frontend | Netlify (or Vercel) | the frontend repo's `netlify.toml`; set `MEMORY_API_BASE_URL` and the same `MEMORY_JWT_SECRET` |
 
 Only settings differ between local and deployed - the code is the same.
-`scripts/setup.py` runs before each deploy and creates the tables, Neo4j
-indexes and demo logins in the new, empty stores; it is safe to run again.
+`scripts/setup.py` runs before each deploy and creates the tables and Neo4j
+indexes in the new, empty stores; it is safe to run again. `DEMO_PASSWORD` is
+not set on the server, so no test-user logins exist there - only people who
+sign up.
 
 ---
 
