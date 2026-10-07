@@ -34,6 +34,18 @@ the other nine work normally.
 
 ---
 
+## Running it — one command on Windows
+
+```bash
+./start-backend.cmd
+```
+
+Starts the databases, stops any worker left from a previous run, starts the
+worker, then the API on http://127.0.0.1:8000. Ctrl+C stops it. The frontend
+has its own `start-frontend.cmd` in its repository.
+
+The same, by hand, is two terminals:
+
 ## Running it — two terminals
 
 ### Terminal 1 — the API
@@ -87,12 +99,15 @@ If they ran in one process, a slow model call would make the listener wait.
 ## Checking it works
 
 ```bash
-python -m pytest -q                    # 401 tests, about 80 seconds
+python -m pytest -q                    # 443 tests, about 2 minutes
 python scripts/verify_endpoints.py     # all 10 endpoints vs the requirements
 ```
 
 The second is the better one to watch: 62 checks, each naming the `abc.md`
-line it comes from.
+line it comes from. Run it with the worker stopped - it checks exact memory
+versions, and a running worker strengthening the same memory changes them.
+
+Both clear the test users' data (`user_001` ... `user_005`) as they go.
 
 ---
 
@@ -149,18 +164,6 @@ curl -X POST http://127.0.0.1:8000/v1/context/compose \
 
 ---
 
-## Checking it works
-
-```bash
-python -m pytest -q                    # 401 tests, about 80 seconds
-python scripts/verify_endpoints.py     # all 10 endpoints vs the requirements
-```
-
-The second one is the better demo: 62 checks, each naming the `abc.md` line it
-comes from.
-
----
-
 ## The MCP server - the five tools for a model
 
 ```bash
@@ -201,25 +204,31 @@ In production both belong on a schedule.
 
 | Symptom | Cause | Fix |
 |---|---|---|
-| `401 UNAUTHENTICATED` | The token expired — they last 15 minutes | `python scripts/make_token.py user_001` |
+| `401 UNAUTHENTICATED` | The token expired — they last 15 minutes | In the web app, log in again; by hand, `python scripts/make_token.py user_001` |
+| `429` on login | 5 wrong passwords for that user id | Wait 15 minutes |
 | `403 CONSENT_DENIED` | No consent row for that subject | Use `user_001`, `user_002` or `user_003` |
 | `503 SERVICE_UNAVAILABLE` | Gemini is busy, or the key is missing | Wait a minute, or check `GEMINI_API_KEY` in `.env` |
 | `429 RATE_LIMITED` | More than 120 requests in a minute | Wait for the next minute |
 | Redis errors | Docker is not running | Start Docker Desktop, then `docker start memory_system_redis` |
 | Events captured but no memories appear | The worker is not running | `python scripts/run_processor.py --forever` |
+| Still no memory, worker running | Gemini was busy (`503 ... high demand`); the event went to the dead-letter queue | Wait a minute, then `python scripts/replay_dead_letters.py` |
+| Two workers / old behaviour after a restart | A worker from before is still running | Restart with `./start-backend.cmd` - it stops the old one first |
+| `Neo.ClientError.Security.Unauthorized` | Another Neo4j container holds port 7687 | `docker stop memory-neo4j` then `docker start memory_system_neo4j` |
 | `KafkaTimeoutError` | Wrong port — 9092 is internal to Docker | `.env` should say `KAFKA_BOOTSTRAP=localhost:19092` |
 
 ---
 
 ## The test subjects
 
-Seeded by the migration, so there is always something to try:
+Seeded by the migration, so there is always something to try. All five log
+in to the web app with password `demo1234`; anyone else signs up with their
+own user id.
 
 | Subject | Consent | Use for |
 |---|---|---|
 | `user_001` | granted | Normal testing |
 | `user_002` | granted | Checking one subject cannot see another's memories |
-| `user_003` | granted | Spare |
+| `user_003` | granted | Memory-disabled experiment arm - always answered without memory |
 | `user_004` | **denied** | Checking consent is enforced |
 | `user_005` | **paused** | Checking the no-memory fallback |
 

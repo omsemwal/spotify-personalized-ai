@@ -162,9 +162,11 @@ and it never leaves the server.
 The expiry is why `abc.md:54` lists *"replay of stale tokens"* as a
 threat: a token stolen today is useless tomorrow. Ours last 15 minutes.
 
-> **Why there is no login:** the callers are Spotify's services, not
-> people. The listener signed into Spotify long ago. `abc.md:187` asks us
-> to verify *service identity* and *subject scope* — never a password.
+> **Who gets a token, and how:** the API's callers are Spotify's services,
+> which get a token minted with the shared secret - `abc.md:187` asks us to
+> verify *service identity* and *subject scope*, never a password. People
+> using the web app log in (`POST /auth/login`, `memory/accounts.py`), the
+> pilot's stand-in for the Spotify session a real deployment would have.
 
 ---
 

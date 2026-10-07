@@ -26,7 +26,7 @@ another listener's data or dump the store.
 python -m memory.mcp_server user_001
 ```
 
-It speaks MCP over stdio, which is how an MCP client (Claude Desktop, an
+It speaks MCP over stdio, which is how an MCP client (a desktop AI app, an
 agent framework) normally starts a server. The API does not need to be
 running separately: the tools call it in-process. The stores (Postgres,
 Redis, Neo4j) do need to be up.

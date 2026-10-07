@@ -86,10 +86,15 @@ Same id, nothing stored twice.
 `abc.md:162` — *"Every read and write must bind to authenticated subject
 and service identities."*
 
-There is **no login**. The callers are Spotify's AI surfaces, not people.
-A person's identity is already established by their Spotify session; the
-gateway passes that along. `abc.md:187` says the API verifies *service
-identity* and *subject scope* — two things, neither of them a password.
+This endpoint takes **no password**. Its callers are Spotify's AI surfaces,
+not people: `abc.md:187` says the API verifies *service identity* and
+*subject scope* - two things, neither of them a password. The token says
+both.
+
+Where does a token come from? For a service, it is minted with the shared
+secret (`scripts/make_token.py`). For a person using the web app, it comes
+from logging in (`POST /auth/login`, `memory/accounts.py`) - the pilot's
+stand-in for the Spotify session a real deployment would already have.
 
 **How it works.** One secret lives in `.env`. It stamps tokens that carry
 the subject and service inside them:

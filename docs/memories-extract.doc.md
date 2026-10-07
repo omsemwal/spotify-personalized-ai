@@ -490,6 +490,6 @@ Two deviations, both stated:
 
 | Ours | Note |
 |---|---|
-| Gemini | The specification names no provider. Claude was `PLAN.md`'s choice; Gemini's free tier replaced it. |
+| Gemini | The specification names no provider. Gemini was chosen for its free tier. |
 | `content` field name | The text is required (`abc.md:107`, `:114`, `:134`), but the specification never names the field. |
 | Retention numbers | `abc.md` requires retention *by memory type* (`:139`) but never says how long. Every value in `data/policy_registry.yaml` is ours, and marked as such in the file. |

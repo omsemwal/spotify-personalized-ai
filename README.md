@@ -1,152 +1,125 @@
 # Spotify Personalized AI Memory System
 
-A governed memory layer for Spotify's AI surfaces. It captures eligible
-interaction events, resolves them into a versioned temporal graph, retrieves
-only what is relevant to the current intent, and hands a bounded, provenanced
-context package to an LLM orchestrator — with full user control over
-correction, pause, opt-out and deletion.
+A governed memory layer for Spotify's AI surfaces. It captures what a listener
+says, turns it into typed, time-bounded memories in a graph, finds only what
+is relevant to the current request, and hands the AI a small, sourced context
+package - with full listener control over correction, pause, opt-out and
+deletion.
 
-This is a **product capability pilot, not a general-purpose behaviour archive.**
-Every remembered fact carries a source, a confidence score, a policy class, a
-valid-time, and is correctable and deletable.
-
----
-
-## The frontend is a separate repository
-
-The operator consoles deploy separately from this API, so they live on their own:
-
-### → **https://github.com/omsemwal/spotify-fronted**
-
-Next.js, React and Tailwind (`abc.md:200`). Start this backend first — the
-consoles are a window onto it and hold no data of their own.
+A **product capability pilot, not a general-purpose behaviour archive.** Every
+remembered fact carries a source, a confidence score, a policy class and a
+valid time, and can be corrected or deleted.
 
 ---
 
-## Running it
+## Links
 
-Full instructions, including troubleshooting, are in **[RUNNING.md](RUNNING.md)**.
+| | |
+|---|---|
+| **Live app** | _to be added after deployment_ |
+| **Live API** | _to be added after deployment_ |
+| **Demo video** (Google Drive, "anyone with the link can view") | _to be added_ |
+| **Frontend repository** | https://github.com/omsemwal/spotify-fronted |
 
-**Setup — four commands:**
+---
+
+## Try it
+
+Open the app, then **sign up** with a user id nobody has (lower-case letters,
+digits, `_`) and a password of 8+ characters - or log in as a test user:
+
+| User | Password | Shows |
+|---|---|---|
+| `user_001` | `demo1234` | normal use |
+| `user_002` | `demo1234` | a second listener - cannot see `user_001`'s memories |
+| `user_003` | `demo1234` | memory-disabled experiment arm - always answered without memory |
+| `user_004` | `demo1234` | consent denied |
+| `user_005` | `demo1234` | consent paused - the no-memory fallback |
+
+Then on **Context preview**: *Tell Spotify's AI* something like "I love Arijit
+Singh romantic songs, but no heavy metal", wait a few seconds, and ask "play
+something romantic". You see which memories were found, how they ranked, what
+policy removed, the exact package the AI receives - and a songs demo.
+
+---
+
+## What it does
+
+| | |
+|---|---|
+| **Capture** | `POST /v1/events` validates subject, consent, schema version, idempotency and source, then queues the event and replies at once |
+| **Understand** | The worker asks Gemini for typed candidates, then deterministic rules decide: type, entities, confidence, policy class. A model's output alone never creates a memory |
+| **Remember** | Neo4j temporal graph: `valid_from`, `valid_to`, `recorded_at`, confidence, status. Corrections supersede and keep history; repeats strengthen, not duplicate |
+| **Retrieve** | Hybrid graph + vector search, ranked by six weighted signals, filtered by surface policy, capped for diversity |
+| **Compose** | A token-budgeted package with provenance and relevance reasons; stored text fenced as data against prompt injection; a deterministic no-memory fallback, also when a store is down |
+| **Control** | Review, correct, delete (across every store, with per-store status), pause, opt out |
+| **Govern** | Retention by memory type, region and age; consent checked before memory is used; every read and write bound to an authenticated subject; audit trail; traces with sensitive text redacted |
+
+---
+
+## Run it locally
+
+Full instructions and troubleshooting: **[RUNNING.md](RUNNING.md)**.
+
+**Once:**
 
 ```bash
 pip install -r requirements.txt
 cp .env.example .env                 # then add a Gemini key
 docker compose up -d                 # postgres, redis, neo4j, redpanda
-python scripts/setup.py              # tables, constraints, vector index
+python scripts/setup.py              # tables, constraints, vector index, demo logins
 ```
 
-**Then two terminals:**
+**Then** - on Windows, one command:
 
 ```bash
-# 1 - the API
-python -m uvicorn memory.api:app --reload --port 8000
-
-# 2 - the worker, which turns events into memories
-python scripts/run_processor.py --forever
+./start-backend.cmd                  # databases, worker and API
 ```
 
-Open **http://127.0.0.1:8000/docs**.
-
-**To check it works:**
+or two terminals:
 
 ```bash
-python -m pytest -q                  # 401 tests
-python scripts/verify_endpoints.py   # all 10 endpoints against the requirements
+python -m uvicorn memory.api:app --port 8000      # the API
+python scripts/run_processor.py --forever         # the worker - turns events into memories
 ```
 
----
-
-## Deployed application
-
-**Not yet deployed.** Add the link here once it is:
-
-**Deployed link:** _to be added_
-
-How to deploy:
-
-| Part | Where | How |
-|---|---|---|
-| API, worker, PostgreSQL, Redis | Render | New -> Blueprint -> this repo. [render.yaml](render.yaml) creates all four; type the secrets it asks for |
-| Neo4j | Neo4j AuraDB (free) | put its `neo4j+s://` URI and password into Render |
-| Kafka | Redpanda Cloud | create topics `interaction-events` and `interaction-events-dlq`; put the address, username and password into Render |
-| Frontend | Netlify (or Vercel) | the frontend repo's `netlify.toml` builds `apps/memory-console`; set `MEMORY_API_BASE_URL` and the same `MEMORY_JWT_SECRET` |
-
-Only settings change between local and deployed - the code is the same.
-`scripts/setup.py` runs before each deploy and creates the tables, Neo4j
-indexes and demo logins in the new, empty stores.
-
-**Demo video (Google Drive, "anyone with the link can view"):** _to be added_
+API docs with "Try it out": **http://127.0.0.1:8000/docs**. Start the frontend
+from its repository (`./start-frontend.cmd`), then open http://localhost:3000.
 
 ---
 
 ## Architecture
 
-Two processes and four stores. Nothing else.
+Two processes and four stores.
 
 ```
-AI surface
-    |
-    v
-API  (memory/api.py, port 8000)  - all ten endpoints, one app
-    |  POST /v1/events replies at once and puts the event on the queue
-    v
-Redpanda (Kafka)
-    |
-    v
-Worker  (scripts/run_processor.py)  - classify, extract, policy check, write
-    |
-    v
-Neo4j  - the temporal graph and the vector index (same memory id)
-PostgreSQL - consent, events, audit log, deletion jobs, feedback, traces
-Redis  - idempotency keys and rate limits
+Web app (frontend repo)        AI surfaces / MCP clients
+          \                         /
+           v                       v
+     API  (memory/api.py)  - ten endpoints, login, consent, metrics
+           |  POST /v1/events replies at once and queues the event
+           v
+     Redpanda (Kafka)  ->  dead-letter topic for failures
+           |
+           v
+     Worker (scripts/run_processor.py) - classify, extract, policy check, write
+           |
+           v
+     Neo4j       the temporal graph and its vector index (same memory id)
+     PostgreSQL  accounts, consent, events, audit log, deletion jobs, traces
+     Redis       idempotency keys, rate limits, login lockouts
 
-MCP server (memory/mcp_server.py) - the five tools a model may use,
-                                    calling the same API in-process
+     MCP server (memory/mcp_server.py) - the five tools a model may use
 ```
 
-The user path never waits for a graph write (`abc.md:324`): the API accepts
+The listener never waits for a graph write (`abc.md:324`): the API accepts
 the event and replies; the worker does the slow work afterwards.
 
-How it works end to end: [docs/HOW_IT_WORKS.md](docs/HOW_IT_WORKS.md).
-
----
-
-## Product surfaces
-
-In the frontend repository, https://github.com/omsemwal/spotify-fronted:
-
-- **Memory console** (http://localhost:3000) - **the one app to use.** Log in,
-  then all seven screens - overview, memory explorer, context preview (with a
-  "Tell Spotify's AI" box and a songs demo), correction and deletion, schema
-  and policy, quality review, audit trace - show **only your own data**. The
-  top bar turns memory on, pauses it or switches it off.
-- **Memory controls** (http://localhost:3001) - the listener review page
-  `abc.md:253` names, with the same login. Everything it does is also in the
-  console.
-
-### Logging in
-
-| | |
-|---|---|
-| New listener | Sign up on http://localhost:3000/login - pick a user id nobody has (lower-case letters, digits, `_`), and a password of 8+ characters |
-| Test users | `user_001` ... `user_005`, password `demo1234` (demo only) |
-
-How it is kept safe (`memory/accounts.py`):
-
-- passwords are stored only as a salted scrypt hash, never as text
-- a taken user id is refused, so nobody can sign up as somebody else
-- 5 wrong passwords pause logins for that id for 15 minutes
-- a login gives a 15-minute pass, kept in an httpOnly cookie the page cannot read
-- every request is checked twice: the pass is genuine and unexpired
-  (authentication), and it belongs to the listener whose data is asked for
-  (authorization - `SUBJECT_MISMATCH` otherwise)
+End to end: [docs/HOW_IT_WORKS.md](docs/HOW_IT_WORKS.md).
 
 ---
 
 ## APIs - all 10 required (`abc.md` §7.3)
-
-All on `http://127.0.0.1:8000`. Try them at `/docs`.
 
 | # | Endpoint | Doc |
 |---|---|---|
@@ -164,12 +137,20 @@ All on `http://127.0.0.1:8000`. Try them at `/docs`.
 All ten in plain words: [apis-explained.doc.md](docs/apis-explained.doc.md).
 A code trace per endpoint: [docs/flow/](docs/flow/).
 
+Supporting endpoints the screens need: `POST /auth/signup`, `POST /auth/login`,
+`GET`/`PATCH /v1/consent` (pause and opt-out), `GET /metrics`, `GET /policy`,
+`GET /quality/runs`, `GET /subjects`, `GET /health`.
+
+Errors use stable codes: `VALIDATION_FAILED`, `UNAUTHENTICATED`,
+`SUBJECT_MISMATCH`, `CONSENT_DENIED`, `RATE_LIMITED`, `NOT_FOUND`, `CONFLICT`,
+`SERVICE_UNAVAILABLE`, `UNSUPPORTED_SCHEMA_VERSION`.
+
 ## MCP tools - all 5 required (`abc.md` §5.4)
 
 `search_memory`, `add_explicit_preference`, `correct_memory`, `delete_memory`,
 `explain_memory_use`. The server is started for one subject, so no tool can
-name another; each call goes through the same auth, consent, validation and
-rate limit as the API, and is audited. No generic graph query tool.
+name another; each call goes through the API's own auth, consent, validation
+and rate limit, and is audited. No generic graph query tool.
 
 ```bash
 python -m memory.mcp_server user_001
@@ -179,19 +160,35 @@ Details: [mcp-tools.doc.md](docs/mcp-tools.doc.md).
 
 ---
 
+## Logging in and privacy
+
+- Passwords are stored only as a **salted scrypt hash** (`memory/accounts.py`).
+- A **taken user id is refused**, so nobody can sign up as somebody else.
+- **5 wrong passwords** pause logins for that id for 15 minutes; a wrong id and
+  a wrong password get the same answer.
+- A login gives a **15-minute pass** in an httpOnly cookie the page cannot read.
+- **Every request is checked twice**: the pass is genuine and unexpired, and it
+  belongs to the listener whose data is asked for (`SUBJECT_MISMATCH`
+  otherwise). The web app writes the logged-in user's id into every request
+  itself, so a page cannot ask for anybody else.
+- Only an id, consent state, region and age band are kept about a person -
+  never a name or email (`abc.md:53`, minimization).
+
+---
+
 ## Data model
 
 | Thing | Where |
 |---|---|
 | Event contract | `memory/models.py::Event`, frozen copy `data/schemas/event_v1.json` |
 | Memory fact | `memory/graph.py` - `valid_from`, `valid_to`, `recorded_at`, `confidence`, `status`, `source_event_ids` |
+| Vector | 384 numbers (`all-MiniLM-L6-v2`) on the memory node itself, property `embedding_384`, so deleting the memory deletes its vector |
 | Context package | `memory/models.py::ContextPackage` |
-| Policy registry | `data/policy_registry.yaml` |
+| Memory types | `data/memory_types.yaml` (definition, example, counterexample) and `data/policy_registry.yaml` (sensitivity, retention, eligibility) |
+| Retention by region and age | `data/retention_rules.yaml` |
 | Entity catalog | `data/catalog.yaml` |
 | Golden evaluation set | `data/golden-sets/pilot_golden_set.json` |
 | PostgreSQL tables | `infrastructure/database-migrations/*.sql` |
-
-Graph shape:
 
 ```
 (Memory)-[:ABOUT]->(Entity)
@@ -199,7 +196,6 @@ Graph shape:
 ```
 
 Every `Memory` node carries its `subject_id`, and every query filters on it.
-Corrections supersede; they never overwrite.
 
 ---
 
@@ -209,53 +205,77 @@ All in `.env.example`, already matching what `docker compose` starts.
 
 | Variable | Meaning |
 |---|---|
-| `MEMORY_JWT_SECRET` | Signs the bearer tokens. Change before any deploy |
-| `POSTGRES_*` | Operational store |
-| `REDIS_*` | Idempotency keys and rate limits |
-| `NEO4J_URI` / `NEO4J_USER` / `NEO4J_PASSWORD` | Graph and vector store |
-| `KAFKA_BOOTSTRAP` | `localhost:19092`, Redpanda's external listener |
-| `KAFKA_USERNAME` / `KAFKA_PASSWORD` / `KAFKA_SASL_MECHANISM` | Only for a hosted Kafka; empty locally |
+| `MEMORY_JWT_SECRET` | Signs the passes. A new long random value for any deployment; the frontend needs the same one |
 | `GEMINI_API_KEY` | The model for extraction (endpoint 2 and the worker) |
+| `DATABASE_URL` or `POSTGRES_*` | PostgreSQL |
+| `REDIS_URL` or `REDIS_*` | Redis |
+| `NEO4J_URI` / `NEO4J_USER` / `NEO4J_PASSWORD` | Neo4j |
+| `KAFKA_BOOTSTRAP` | The Kafka / Redpanda address (`localhost:19092` locally) |
+| `KAFKA_USERNAME` / `KAFKA_PASSWORD` / `KAFKA_SASL_MECHANISM` | Only for a hosted Kafka; empty locally |
 
 ---
 
-## Testing
+## Deployment
+
+| Part | Where | How |
+|---|---|---|
+| API, worker, PostgreSQL, Redis | Render | New -> Blueprint -> this repo. [render.yaml](render.yaml) creates all four; type the secrets it asks for |
+| Neo4j | Neo4j AuraDB | put its `neo4j+s://` URI and password into Render (`NEO4J_USER` = `neo4j`) |
+| Kafka | Redpanda Cloud | topics `interaction-events` and `interaction-events-dlq`; put the address, username and password into Render |
+| Frontend | Netlify (or Vercel) | the frontend repo's `netlify.toml`; set `MEMORY_API_BASE_URL` and the same `MEMORY_JWT_SECRET` |
+
+Only settings differ between local and deployed - the code is the same.
+`scripts/setup.py` runs before each deploy and creates the tables, Neo4j
+indexes and demo logins in the new, empty stores; it is safe to run again.
+
+---
+
+## Tests and results
 
 ```bash
-python -m pytest -q                    # 401 tests, real stores, model replaced
+python -m pytest -q                    # 443 tests, real stores, model replaced
 python scripts/verify_endpoints.py     # 62 checks, each citing its abc.md line
-python scripts/run_golden_set.py       # 12 golden cases, feeds the Quality screen
+python scripts/run_golden_set.py       # 12 golden cases, feeds Quality review
 ```
 
-Run `verify_endpoints.py` with the worker stopped - it checks exact versions,
-and a live worker strengthening the same memory changes them.
+| Check | Result |
+|---|---|
+| Test suite | 443 passed |
+| Endpoint checks against the requirements | 62 / 62 |
+| Golden set | 12 / 12 - precision at top 1.000, contradiction rate 0.000, provenance completeness 1.000 |
+| Retrieval + composition latency | p95 about 70 ms locally, against the 250 ms budget (`abc.md:170`) - live on the Overview screen |
+
+Run `verify_endpoints.py` with the worker stopped - it checks exact memory
+versions, and a running worker strengthening the same memory changes them.
 
 ---
 
 ## Screenshots
 
-_To be added: the console's seven screens and the controls app._
+_To be added: the login page, the seven screens and the listener page._
 
 ---
 
 ## Limitations - stated honestly
 
 1. **No LLM answer is generated.** `POST /v1/context/compose` returns the
-   context package an AI orchestrator would consume; the orchestrator is
-   outside this repository.
+   package an AI orchestrator would consume; the orchestrator is outside this
+   repository. The songs on Context preview are a labelled demo (iTunes
+   previews), not part of the memory system.
 2. **Login is a pilot stand-in for Spotify's.** `abc.md` assumes the gateway
    verifies an existing Spotify session; here `POST /auth/signup` and
-   `POST /auth/login` (user id and password) do that job. Service-to-service
-   calls still use a token minted with the shared secret
-   (`scripts/make_token.py`).
-3. **Extraction needs a Gemini key.** Without one, endpoint 2 returns a clean
-   503 and the other nine work.
-4. **Not deployed.** It runs locally with `docker compose`.
-5. **Surface policy is a filter, not a score.** `abc.md` §5.4 lists seven
+   `POST /auth/login` do that job. Services still use a token minted with the
+   shared secret (`scripts/make_token.py`).
+3. **Extraction depends on Gemini.** Without a key, endpoint 2 returns a clean
+   503. When Gemini is overloaded, events go to the dead-letter queue -
+   `python scripts/replay_dead_letters.py` retries them.
+4. **Surface policy is a filter, not a score.** `abc.md` §5.4 lists seven
    ranking signals. Six are scored (`memory/retrieval.py`); the seventh,
    surface policy, removes a memory outright when the surface may not use it,
-   because a memory the policy forbids must never reach the AI however well
-   it scores.
+   because a memory the policy forbids must never reach the AI however well it
+   scores.
+5. **Retention numbers are our choice.** `abc.md` requires retention by type,
+   region and age but names no values; they are in `data/*.yaml`.
 
 ---
 
@@ -268,11 +288,15 @@ Single-contributor pilot build.
 ## Repository layout
 
 ```
-memory/                        the API, the worker logic and the MCP server
-scripts/                       setup, worker, token, checks, housekeeping
-tests/                         pytest suites against the real stores
-data/                          policy registry, catalog, golden set, event schema
-infrastructure/                PostgreSQL migrations
-docs/                          one doc per API, flows, requirements
-docker-compose.yml             the four stores
+memory/                    the API, worker logic, login, policy and MCP server
+scripts/                   setup, worker, tokens, checks, replay, housekeeping
+tests/                     pytest suites against the real stores
+data/                      policy registry, memory types, retention rules,
+                           catalog, golden set, event schema
+infrastructure/            PostgreSQL migrations
+docs/                      one doc per API, code flows, requirements
+abc.md                     the requirements, as text (cited as abc.md:<line>)
+render.yaml                Render deployment
+docker-compose.yml         the four stores, locally
+start-backend.cmd          one-command start on Windows
 ```
