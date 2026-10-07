@@ -52,3 +52,7 @@ Thumbs.db
 logs/
 data/local/
 .logs/
+
+# The assignment brief as a PDF. abc.md holds the same text and is what the
+# code and docs cite, so the PDF stays local only.
+projcet requirements.pdf
