@@ -147,6 +147,19 @@ def health():
     return {"status": "ok"}
 
 
+@app.get("/health/stores")
+def health_stores():
+    """Is every store connected, and is the worker running?
+
+    Public like /health, so a deployment can be checked from outside. Only
+    "ok" or an error type per store - never an address or a credential.
+    See memory/status.py.
+    """
+    from memory import status
+
+    return status.summary()
+
+
 @app.get("/metrics")
 def metrics(caller: Caller = Depends(authenticate)):
     """Operational numbers for the Overview screen.
