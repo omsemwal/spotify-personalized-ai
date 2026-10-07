@@ -7,6 +7,7 @@ needed. These check it runs on startup, is safe to repeat, and cannot stop
 the API from starting when a store is down.
 """
 
+import pytest
 from fastapi.testclient import TestClient
 
 from memory import startup
@@ -62,3 +63,16 @@ def test_the_setting_starts_the_worker_inside_the_api(monkeypatch):
     monkeypatch.setattr(worker, "start_in_background", lambda: started.append(1))
     startup.prepare_stores()
     assert started == [1]
+
+
+# A value typed with quotes or spaces in a dashboard still counts.
+@pytest.mark.parametrize("value", ["true", "True", '"true"', "'true'", " yes ", "1", "on"])
+def test_the_setting_accepts_how_people_type_it(monkeypatch, value):
+    monkeypatch.setenv("RUN_WORKER_IN_API", value)
+    assert worker.runs_in_api()
+
+
+@pytest.mark.parametrize("value", ["", "false", "no", "0"])
+def test_the_setting_is_off_otherwise(monkeypatch, value):
+    monkeypatch.setenv("RUN_WORKER_IN_API", value)
+    assert not worker.runs_in_api()

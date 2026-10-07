@@ -66,7 +66,10 @@ def run_forever(run_pass=one_pass, sleep=time.sleep, max_passes=None) -> None:
 
 # Is the worker meant to run inside the API process?
 def runs_in_api() -> bool:
-    return os.environ.get("RUN_WORKER_IN_API", "").strip().lower() in ("1", "true", "yes")
+    # Forgiving on purpose: a value typed into a dashboard as "true" (with
+    # quotes) or True or " yes " still counts.
+    value = os.environ.get("RUN_WORKER_IN_API", "").strip().strip("\"'").strip().lower()
+    return value in ("1", "true", "yes", "on")
 
 
 # Start the worker as a background thread of this process.

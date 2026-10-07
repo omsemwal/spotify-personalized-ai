@@ -28,6 +28,7 @@ scripts/setup.py does the same steps, with progress printed, for local use.
 """
 
 import logging
+import os
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
@@ -61,17 +62,23 @@ def prepare_graph() -> None:
 # stop the API from starting.
 def prepare_stores() -> None:
     try:
-        logger.warning("startup: applied %s", ", ".join(apply_migrations()))
+        print("startup: applied " + ", ".join(apply_migrations()), flush=True)
     except Exception:  # noqa: BLE001
         logger.exception("startup: PostgreSQL migrations failed")
     try:
         prepare_graph()
-        logger.warning("startup: Neo4j constraints and vector index ready")
+        print("startup: Neo4j constraints and vector index ready", flush=True)
     except Exception:  # noqa: BLE001
         logger.exception("startup: Neo4j preparation failed")
 
     # On a free host the worker has no service of its own, so it runs here.
     from memory import worker
 
+    # Always say which way it went, so the host's logs answer "is the worker
+    # running?" without guessing.
     if worker.runs_in_api():
         worker.start_in_background()
+    else:
+        print("startup: worker NOT started inside the API - RUN_WORKER_IN_API is "
+              f"{os.environ.get('RUN_WORKER_IN_API')!r}; set it to true on a host "
+              "without a separate worker", flush=True)
