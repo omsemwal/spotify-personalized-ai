@@ -127,13 +127,13 @@ def propose_candidates(event: dict) -> list[dict]:
         # The library's own retries are off: on "429 quota exceeded" they kept
         # one event waiting for minutes. _ask_with_retries does the retrying,
         # and moves to the fallback model when the quota is gone. Each call is
-        # capped at 30 seconds.
+        # capped at 60 seconds - the fallback model can take over 30.
         from google.genai import types
 
         client = genai.Client(
             api_key=api_key,
             http_options=types.HttpOptions(
-                timeout=30_000,
+                timeout=60_000,
                 retry_options=types.HttpRetryOptions(attempts=1),
             ),
         )

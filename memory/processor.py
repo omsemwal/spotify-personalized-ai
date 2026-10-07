@@ -125,6 +125,11 @@ def failure_reason(exc: Exception) -> str:
     never a key, an address or the listener's words."""
     reason = type(exc).__name__
     text = str(exc)
+    lowered = text.lower()
+    if "timed out" in lowered or "timeout" in lowered:
+        return reason + ": timeout"
+    if "invalid json" in lowered:
+        return reason + ": invalid JSON"
     for status in ("400", "401", "403", "404", "429", "500", "503",
                    "API_KEY_INVALID", "PERMISSION_DENIED", "UNAVAILABLE",
                    "RESOURCE_EXHAUSTED", "NOT_FOUND", "INVALID_ARGUMENT"):

@@ -70,3 +70,9 @@ def test_reasons_are_listed():
                     reason="ModelUnavailable: 503")
     reasons = monitoring.write_failures()["reasons"]
     assert {"kind": "failed", "reason": "ModelUnavailable: 503", "count": 1} in reasons
+
+
+def test_a_timeout_and_a_bad_reply_are_named():
+    from memory import processor
+    assert processor.failure_reason(RuntimeError("ReadTimeout: The read operation timed out")) == "RuntimeError: timeout"
+    assert processor.failure_reason(RuntimeError("model returned invalid JSON: x")) == "RuntimeError: invalid JSON"
