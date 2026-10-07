@@ -39,9 +39,19 @@ def write_failures() -> dict:
             "       count(*) FILTER (WHERE action = 'processor.completed')"
             " FROM audit_log"
         ).fetchone()
+        # Why recent events failed or stored nothing - fixed reasons only.
+        reasons = conn.execute(
+            "SELECT action, reason, count(*) FROM audit_log"
+            " WHERE action IN ('processor.failed', 'processor.completed')"
+            " AND reason IS NOT NULL"
+            " GROUP BY action, reason ORDER BY count(*) DESC LIMIT 10"
+        ).fetchall()
     tried = failed + completed
     return {"failed": failed, "processed": tried,
-            "rate": round(failed / tried, 4) if tried else 0.0}
+            "rate": round(failed / tried, 4) if tried else 0.0,
+            "reasons": [{"kind": "failed" if action == "processor.failed" else "no memory",
+                         "reason": reason, "count": count}
+                        for action, reason, count in reasons]}
 
 
 # How often a repeated event was answered from the cache instead of written again.

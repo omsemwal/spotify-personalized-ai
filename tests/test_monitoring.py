@@ -56,3 +56,17 @@ def test_metrics_returns_all_three():
     body = client.get("/metrics", headers=AUTH).json()
     assert {"write_failures", "cache_effectiveness", "policy_rejection"} <= set(body)
     assert 0.0 <= body["policy_rejection"]["rate"] <= 1.0
+
+
+def test_failure_reasons_are_short_and_secret_free():
+    from memory import processor
+    exc = RuntimeError("ModelUnavailable: 503 UNAVAILABLE key=AIzaSECRET at https://host")
+    assert processor.failure_reason(exc) == "RuntimeError: 503"
+
+
+def test_reasons_are_listed():
+    db.record_audit(action="processor.failed", subject_id="user_005", service_id="test",
+                    outcome="failed", correlation_id="cid_test",
+                    reason="ModelUnavailable: 503")
+    reasons = monitoring.write_failures()["reasons"]
+    assert {"kind": "failed", "reason": "ModelUnavailable: 503", "count": 1} in reasons

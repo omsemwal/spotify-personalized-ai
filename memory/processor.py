@@ -118,6 +118,22 @@ def store_candidate(subject_id: str, candidate, event_id: str) -> dict:
     return created
 
 
+# A short, secret-free reason for a failure, for the audit log and /metrics.
+def failure_reason(exc: Exception) -> str:
+    """The error type, plus the provider's status for a model failure
+    ("ModelUnavailable: 503 UNAVAILABLE") - enough to know what to fix,
+    never a key, an address or the listener's words."""
+    reason = type(exc).__name__
+    text = str(exc)
+    for status in ("400", "401", "403", "404", "429", "500", "503",
+                   "API_KEY_INVALID", "PERMISSION_DENIED", "UNAVAILABLE",
+                   "RESOURCE_EXHAUSTED", "NOT_FOUND", "INVALID_ARGUMENT"):
+        if status in text:
+            reason += f": {status}"
+            break
+    return reason
+
+
 # Process one queued message: store its memories, or dead-letter it.
 def handle_message(body: dict) -> dict:
     """Returns {"handled": 0|1, "failed": 0|1, "stored": n}. Never raises:
@@ -131,6 +147,9 @@ def handle_message(body: dict) -> dict:
             outcome="stored" if outcome.get("stored") else "no_memory",
             correlation_id=body.get("correlation_id", ""),
             event_id=body["event_id"],
+            # Why nothing was stored, e.g. "no memory worth keeping" - one of
+            # process_event's own fixed reasons, never the listener's words.
+            reason=None if outcome.get("stored") else outcome.get("reason"),
         )
         return {"handled": 1, "failed": 0, "stored": outcome.get("stored", 0)}
     except Exception as exc:  # noqa: BLE001 - one bad event must not stop the rest
@@ -147,6 +166,7 @@ def handle_message(body: dict) -> dict:
                 outcome="failed",
                 correlation_id=body.get("correlation_id", ""),
                 event_id=body.get("event_id"),
+                reason=failure_reason(exc),
             )
         except Exception:  # noqa: BLE001
             logger.exception("could not audit the failure")
