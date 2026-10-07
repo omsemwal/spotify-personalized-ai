@@ -9,6 +9,7 @@ read and write must bind to authenticated subject and service identities").
 
 import time
 import uuid
+from contextlib import asynccontextmanager
 
 from fastapi import BackgroundTasks, Depends, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -68,9 +69,21 @@ from memory.models import (
     TraceDecision,
 )
 
+# Create the tables, Neo4j constraints and vector index if they are missing,
+# once, when the API starts - so a fresh deployment needs no manual step.
+# See memory/startup.py.
+@asynccontextmanager
+async def lifespan(_app):
+    from memory import startup
+
+    startup.prepare_stores()
+    yield
+
+
 app = FastAPI(
     title="Spotify Personalized AI Memory System",
     version="0.1.0",
+    lifespan=lifespan,
 )
 
 # The consoles run on a different origin from the API, so the browser

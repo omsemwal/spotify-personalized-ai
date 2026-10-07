@@ -12,7 +12,6 @@ consent records. Safe to run again at any time - every step is written to
 be repeatable.
 """
 
-import glob
 import os
 import sys
 import time
@@ -42,16 +41,11 @@ def wait_for(name: str, check, attempts: int = 30, gap: float = 2.0) -> bool:
 
 # Apply every .sql migration, in name order.
 def apply_postgres_migrations() -> None:
-    import psycopg
+    # The same steps the API runs when it starts (memory/startup.py).
+    from memory import startup
 
-    from memory import config
-
-    paths = sorted(glob.glob("infrastructure/database-migrations/*.sql"))
-    for path in paths:
-        sql = Path(path).read_text(encoding="utf-8")
-        with psycopg.connect(config.postgres_url(), autocommit=True) as conn:
-            conn.execute(sql)
-        print(f"  applied {Path(path).name}")
+    for name in startup.apply_migrations():
+        print(f"  applied {name}")
 
 
 # Create the graph constraints and the vector index.
