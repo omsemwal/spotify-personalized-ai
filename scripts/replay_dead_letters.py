@@ -48,7 +48,9 @@ REPLAY_GROUP = "dead-letter-replay"
 
 # Move every waiting dead letter back onto the main queue.
 def replay(dry_run: bool = False) -> int:
-    dead = queue.consumer(group_id=REPLAY_GROUP, timeout_ms=3000,
+    # A hosted Kafka needs longer to join (queue.consumer); locally 3s is enough.
+    wait = None if queue.connection_settings() else 3000
+    dead = queue.consumer(group_id=REPLAY_GROUP, timeout_ms=wait,
                           topic=queue.DEAD_LETTER_TOPIC)
     count = 0
     try:

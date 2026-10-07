@@ -57,6 +57,10 @@ def connection_settings() -> dict:
 
 
 TOPIC = "interaction-events"
+
+# How long one worker pass waits for messages - see consumer().
+LOCAL_WAIT_MS = 1000
+HOSTED_WAIT_MS = 20000
 DEAD_LETTER_TOPIC = "interaction-events-dlq"
 
 _producer = None
@@ -125,13 +129,23 @@ def publish_dead_letter(message: dict, error: str) -> None:
 
 
 # Make a consumer for the processor to read with.
-def consumer(group_id: str = "memory-processor", timeout_ms: int = 1000,
+def consumer(group_id: str = "memory-processor", timeout_ms: int | None = None,
              topic: str = TOPIC):
     """abc.md:207 - "consumer isolation". The group id is how Redpanda
     knows which messages this worker has already handled, so a restart
     resumes rather than reprocessing everything.
+
+    timeout_ms is how long one pass waits for a message before it ends.
+    Joining the consumer group happens inside that wait. Redpanda in Docker
+    answers at once, so 1 second is plenty locally. A hosted Kafka over the
+    internet takes several seconds just to join - with 1 second every pass
+    ended before a single message arrived, so the deployed worker processed
+    nothing. A hosted Kafka (one that needs a login) therefore gets 20.
     """
     from kafka import KafkaConsumer
+
+    if timeout_ms is None:
+        timeout_ms = HOSTED_WAIT_MS if connection_settings() else LOCAL_WAIT_MS
 
     # topic is the main queue for the worker, or DEAD_LETTER_TOPIC for
     # scripts/replay_dead_letters.py.
