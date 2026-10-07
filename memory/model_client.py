@@ -30,7 +30,12 @@ from memory.models import MEMORY_TYPES
 
 load_dotenv()
 
-MODEL = "gemini-3.6-flash"
+# The model asked first, and the one asked when its free quota runs out.
+# Each Gemini model has its own free quota on the same key, so when one says
+# "429 - you exceeded your current quota" the other usually still answers.
+# Both can be changed with GEMINI_MODEL / GEMINI_FALLBACK_MODEL, no code edit.
+MODEL = os.environ.get("GEMINI_MODEL", "").strip() or "gemini-3.6-flash"
+FALLBACK_MODEL = os.environ.get("GEMINI_FALLBACK_MODEL", "").strip() or "gemini-2.5-flash"
 
 # abc.md:341 - "System instruction: define the role, allowed memory
 # taxonomy, prohibited inferences, subject boundary, temporal rules, and
@@ -119,7 +124,19 @@ def propose_candidates(event: dict) -> list[dict]:
     )
 
     try:
-        client = genai.Client(api_key=api_key)
+        # The library's own retries are off: on "429 quota exceeded" they kept
+        # one event waiting for minutes. _ask_with_retries does the retrying,
+        # and moves to the fallback model when the quota is gone. Each call is
+        # capped at 30 seconds.
+        from google.genai import types
+
+        client = genai.Client(
+            api_key=api_key,
+            http_options=types.HttpOptions(
+                timeout=30_000,
+                retry_options=types.HttpRetryOptions(attempts=1),
+            ),
+        )
         response = _ask_with_retries(client, prompt)
         parsed = json.loads(response.text)
     except json.JSONDecodeError as exc:
@@ -153,14 +170,27 @@ def _is_busy(exc: Exception) -> bool:
 
 # Call Gemini, retrying only when it says it is busy.
 def _ask_with_retries(client, prompt, sleep=time.sleep):
-    for wait in (*RETRY_WAITS_SECONDS, None):
-        try:
-            return client.models.generate_content(
-                model=MODEL,
-                contents=prompt,
-                config={"response_mime_type": "application/json"},
-            )
-        except Exception as exc:  # noqa: BLE001
-            if wait is None or not _is_busy(exc):
-                raise
-            sleep(wait)
+    """Busy: wait and ask again. Out of quota: ask the fallback model at once,
+    since waiting a few seconds does not bring a daily quota back."""
+    models = [MODEL] + ([FALLBACK_MODEL] if FALLBACK_MODEL != MODEL else [])
+    for position, model in enumerate(models):
+        last_model = position == len(models) - 1
+        for wait in (*RETRY_WAITS_SECONDS, None):
+            try:
+                return client.models.generate_content(
+                    model=model,
+                    contents=prompt,
+                    config={"response_mime_type": "application/json"},
+                )
+            except Exception as exc:  # noqa: BLE001
+                if _out_of_quota(exc) and not last_model:
+                    break                      # next model
+                if wait is None or not _is_busy(exc):
+                    raise
+                sleep(wait)
+
+
+# Has this model's quota run out (as opposed to a short spike)?
+def _out_of_quota(exc: Exception) -> bool:
+    text = f"{type(exc).__name__} {exc}"
+    return ("429" in text or "RESOURCE_EXHAUSTED" in text) and "quota" in text.lower()

@@ -200,6 +200,7 @@ All in `.env.example`, already matching what `docker compose` starts.
 |---|---|
 | `MEMORY_JWT_SECRET` | Signs the passes. A new long random value for any deployment; the frontend needs the same one |
 | `GEMINI_API_KEY` | The model for extraction (endpoint 2 and the worker) |
+| `GEMINI_MODEL` / `GEMINI_FALLBACK_MODEL` | Optional. Default `gemini-3.6-flash`, falling back to `gemini-2.5-flash` when the first one's free quota runs out |
 | `DATABASE_URL` or `POSTGRES_*` | PostgreSQL |
 | `REDIS_URL` or `REDIS_*` | Redis |
 | `NEO4J_URI` / `NEO4J_USER` / `NEO4J_PASSWORD` | Neo4j |

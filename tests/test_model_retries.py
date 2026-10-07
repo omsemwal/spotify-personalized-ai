@@ -49,3 +49,24 @@ def test_other_errors_are_not_retried():
     with pytest.raises(RuntimeError):
         model_client._ask_with_retries(client, "p", sleep=lambda s: None)
     assert client.models.calls == 1
+
+
+# A model out of quota is not waited on: the fallback model is asked at once.
+def test_out_of_quota_moves_to_the_fallback_model(monkeypatch):
+    monkeypatch.setattr(model_client, "MODEL", "main-model")
+    monkeypatch.setattr(model_client, "FALLBACK_MODEL", "spare-model")
+    asked = []
+
+    class Models:
+        def generate_content(self, model, **kwargs):
+            asked.append(model)
+            if model == "main-model":
+                raise RuntimeError("429 RESOURCE_EXHAUSTED You exceeded your current quota")
+            return "answer"
+
+    class Client:
+        models = Models()
+
+    waits = []
+    assert model_client._ask_with_retries(Client(), "p", sleep=waits.append) == "answer"
+    assert asked == ["main-model", "spare-model"] and waits == []
