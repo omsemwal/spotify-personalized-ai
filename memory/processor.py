@@ -118,57 +118,95 @@ def store_candidate(subject_id: str, candidate, event_id: str) -> dict:
     return created
 
 
+# Process one queued message: store its memories, or dead-letter it.
+def handle_message(body: dict) -> dict:
+    """Returns {"handled": 0|1, "failed": 0|1, "stored": n}. Never raises:
+    one bad event must not stop the rest."""
+    try:
+        outcome = process_event(body["event_id"], body["subject_id"])
+        db.record_audit(
+            action="processor.completed",
+            subject_id=body["subject_id"],
+            service_id="memory-processor",
+            outcome="stored" if outcome.get("stored") else "no_memory",
+            correlation_id=body.get("correlation_id", ""),
+            event_id=body["event_id"],
+        )
+        return {"handled": 1, "failed": 0, "stored": outcome.get("stored", 0)}
+    except Exception as exc:  # noqa: BLE001 - one bad event must not stop the rest
+        logger.exception("event_id=%s failed", body.get("event_id"))
+        queue.publish_dead_letter(body, f"{type(exc).__name__}: {exc}")
+        # Counted as a write failure by memory/monitoring.py. If the
+        # database itself is what failed, this cannot be written - that
+        # must not stop the worker either.
+        try:
+            db.record_audit(
+                action="processor.failed",
+                subject_id=body.get("subject_id", ""),
+                service_id="memory-processor",
+                outcome="failed",
+                correlation_id=body.get("correlation_id", ""),
+                event_id=body.get("event_id"),
+            )
+        except Exception:  # noqa: BLE001
+            logger.exception("could not audit the failure")
+        return {"handled": 0, "failed": 1, "stored": 0}
+
+
 # Read the queue and process what is on it, until it is empty.
 def run_once(max_messages: int = 100) -> dict:
-    """One pass over the queue. Used by the worker script and by tests.
+    """One pass over the queue, with its own short-lived consumer. Used by
+    `python scripts/run_processor.py` (one pass) and by tests.
 
     A message is only marked done after it has been processed, so a crash
     means it is picked up again rather than lost.
     """
     consumer = queue.consumer()
-    handled, failed, memories = 0, 0, 0
+    totals = {"handled": 0, "failed": 0, "memories_stored": 0}
 
     try:
         for message in consumer:
-            body = message.value
-            try:
-                outcome = process_event(body["event_id"], body["subject_id"])
-                memories += outcome.get("stored", 0)
-                handled += 1
-
-                db.record_audit(
-                    action="processor.completed",
-                    subject_id=body["subject_id"],
-                    service_id="memory-processor",
-                    outcome="stored" if outcome.get("stored") else "no_memory",
-                    correlation_id=body.get("correlation_id", ""),
-                    event_id=body["event_id"],
-                )
-            except Exception as exc:  # noqa: BLE001 - one bad event must not stop the rest
-                logger.exception("event_id=%s failed", body.get("event_id"))
-                queue.publish_dead_letter(body, f"{type(exc).__name__}: {exc}")
-                failed += 1
-                # Counted as a write failure by memory/monitoring.py. If the
-                # database itself is what failed, this cannot be written -
-                # that must not stop the worker either.
-                try:
-                    db.record_audit(
-                        action="processor.failed",
-                        subject_id=body.get("subject_id", ""),
-                        service_id="memory-processor",
-                        outcome="failed",
-                        correlation_id=body.get("correlation_id", ""),
-                        event_id=body.get("event_id"),
-                    )
-                except Exception:  # noqa: BLE001
-                    logger.exception("could not audit the failure")
+            result = handle_message(message.value)
+            totals["handled"] += result["handled"]
+            totals["failed"] += result["failed"]
+            totals["memories_stored"] += result["stored"]
 
             # Mark done only now, after the work actually happened.
             consumer.commit()
 
-            if handled + failed >= max_messages:
+            if totals["handled"] + totals["failed"] >= max_messages:
                 break
     finally:
         consumer.close()
 
-    return {"handled": handled, "failed": failed, "memories_stored": memories}
+    return totals
+
+
+# Process whatever an already-open consumer has waiting.
+def poll_once(consumer, wait_seconds: float = 5, max_messages: int = 100) -> dict:
+    """For the long-running worker (memory/worker.py), which keeps ONE
+    consumer open instead of opening a new one every pass.
+
+    Opening a consumer means joining the consumer group. With Redpanda in
+    Docker that is instant; with a hosted Kafka over the internet it takes
+    seconds, and a worker that re-joined every pass spent nearly all its
+    time joining - the deployed worker processed 1 event in 8 minutes.
+    """
+    totals = {"handled": 0, "failed": 0, "memories_stored": 0}
+    batches = consumer.poll(timeout_ms=int(wait_seconds * 1000), max_records=max_messages)
+    for records in batches.values():
+        for message in records:
+            result = handle_message(message.value)
+            totals["handled"] += result["handled"]
+            totals["failed"] += result["failed"]
+            totals["memories_stored"] += result["stored"]
+            # Mark done only THIS message, now that its work happened. A
+            # plain commit() would mark the whole fetched batch done, and a
+            # crash mid-batch would lose the rest.
+            from kafka.structs import OffsetAndMetadata, TopicPartition
+
+            consumer.commit({
+                TopicPartition(message.topic, message.partition):
+                    OffsetAndMetadata(message.offset + 1, None),
+            })
+    return totals

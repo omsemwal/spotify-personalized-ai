@@ -26,7 +26,7 @@ import os
 import threading
 import time
 
-from memory import processor
+from memory import processor, queue
 
 
 # Run one pass and print what happened.
@@ -41,8 +41,46 @@ def one_pass() -> dict:
     return outcome
 
 
+# One pass of the long-running worker, reusing one open consumer.
+class _OpenConsumerPass:
+    """Joining the consumer group is slow on a hosted Kafka, so the
+    long-running worker joins once and keeps the consumer open
+    (processor.poll_once). If a pass fails, the consumer is closed and a
+    fresh one is opened on the next pass."""
+
+    def __init__(self):
+        self.consumer = None
+
+    def __call__(self) -> dict:
+        if self.consumer is None:
+            self.consumer = queue.consumer()
+        try:
+            outcome = processor.poll_once(self.consumer, wait_seconds=2)
+        except Exception:
+            self.close()
+            raise
+        # Only say something when something happened - no log line every
+        # few seconds while idle.
+        if outcome["handled"] or outcome["failed"]:
+            print(
+                f"handled {outcome['handled']}, "
+                f"failed {outcome['failed']}, "
+                f"memories stored {outcome['memories_stored']}",
+                flush=True,
+            )
+        return outcome
+
+    def close(self) -> None:
+        if self.consumer is not None:
+            try:
+                self.consumer.close()
+            except Exception:  # noqa: BLE001
+                pass
+            self.consumer = None
+
+
 # Keep running passes; one failed pass must not stop the worker.
-def run_forever(run_pass=one_pass, sleep=time.sleep, max_passes=None) -> None:
+def run_forever(run_pass=None, sleep=time.sleep, max_passes=None) -> None:
     """A pass can fail for reasons outside our code - on Windows the Kafka
     client's network thread sometimes dies with WinError 10038 while a
     consumer closes. If that ended the worker, events would keep being
@@ -50,6 +88,8 @@ def run_forever(run_pass=one_pass, sleep=time.sleep, max_passes=None) -> None:
     is committed only after its work is done, so the next pass resumes from
     the first unfinished one.
     """
+    if run_pass is None:
+        run_pass = _OpenConsumerPass()
     passes = 0
     while max_passes is None or passes < max_passes:
         passes += 1
@@ -61,7 +101,7 @@ def run_forever(run_pass=one_pass, sleep=time.sleep, max_passes=None) -> None:
             continue
         # Nothing waiting: pause rather than spin.
         if outcome["handled"] == 0 and outcome["failed"] == 0:
-            sleep(5)
+            sleep(3)
 
 
 # Is the worker meant to run inside the API process?

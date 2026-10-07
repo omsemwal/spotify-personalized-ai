@@ -57,4 +57,4 @@ def test_it_only_pauses_when_idle():
     sleeps = []
     run_processor.run_forever(run_pass=lambda: outcomes.pop(0),
                               sleep=sleeps.append, max_passes=2)
-    assert sleeps == [5]
+    assert sleeps == [3]
