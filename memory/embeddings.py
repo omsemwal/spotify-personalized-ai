@@ -21,17 +21,26 @@ deletes its vector, because they are the same thing. There is no second
 store that can drift out of step.
 
 abc.md:212 offers "SentenceTransformers or approved embedding service".
-SentenceTransformers runs locally: no API key, no rate limit, and the same
-answer every time, which keeps tests free and repeatable.
+We use the SentenceTransformers model all-MiniLM-L6-v2, run locally: no API
+key, no rate limit, and the same answer every time, which keeps tests free
+and repeatable.
+
+It runs through fastembed (ONNX) rather than the sentence-transformers
+library, because that library brings PyTorch: the API needed about 620 MB
+of memory with it and about 230 MB without, and a free server has 512 MB.
+Same model, same 384 numbers - checked identical (similarity 1.0) to
+sentence-transformers' own output, so stored vectors still match.
 """
 
 from functools import cache
+
+import numpy as np
 
 from memory import graph
 
 # Small, fast, and good enough for short preference sentences. 384 numbers
 # per memory.
-MODEL_NAME = "all-MiniLM-L6-v2"
+MODEL_NAME = "sentence-transformers/all-MiniLM-L6-v2"
 DIMENSIONS = 384
 
 # The index Neo4j uses to search vectors quickly.
@@ -52,14 +61,17 @@ APPROVED_FIELDS = ("fact",)
 # Load the model once. The first call downloads it, then it is cached.
 @cache
 def model():
-    from sentence_transformers import SentenceTransformer
+    from fastembed import TextEmbedding
 
-    return SentenceTransformer(MODEL_NAME)
+    return TextEmbedding(MODEL_NAME)
 
 
 # Turn one piece of text into a list of numbers.
 def embed(text: str) -> list[float]:
-    return model().encode(text, normalize_embeddings=True).tolist()
+    vector = next(iter(model().embed([text])))
+    # Length 1, so comparing two vectors is a plain dot product - the same
+    # normalization sentence-transformers applied.
+    return (vector / np.linalg.norm(vector)).tolist()
 
 
 # Build the text that gets embedded, from approved fields only.

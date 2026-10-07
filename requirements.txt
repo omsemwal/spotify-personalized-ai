@@ -21,7 +21,7 @@ kafka-python==3.0.11          # Redpanda, for the ingestion queue
 
 # --- The model -------------------------------------------------------------
 google-genai==2.25.0          # extraction (abc.md names no provider)
-sentence-transformers==6.0.1  # embeddings, runs locally (abc.md:212)
+fastembed==0.8.1              # embeddings: all-MiniLM-L6-v2, run locally without PyTorch (abc.md:212)
 
 # --- Tests -----------------------------------------------------------------
 pytest==9.1.1

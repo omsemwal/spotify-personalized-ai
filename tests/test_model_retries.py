@@ -1,0 +1,51 @@
+"""Why this file exists
+=====================
+
+Gemini often answers "503 - high demand". memory/model_client.py now tries
+again a few times, waiting longer each time, so a short spike does not send
+the event to the dead-letter queue. Other errors are not retried.
+"""
+
+import pytest
+
+from memory import model_client
+
+
+class FakeModels:
+    """Fails with the given errors in order, then answers."""
+
+    def __init__(self, errors):
+        self.errors = list(errors)
+        self.calls = 0
+
+    def generate_content(self, **kwargs):
+        self.calls += 1
+        if self.errors:
+            raise self.errors.pop(0)
+        return "answer"
+
+
+class FakeClient:
+    def __init__(self, errors):
+        self.models = FakeModels(errors)
+
+
+def test_a_busy_model_is_retried_until_it_answers():
+    client = FakeClient([RuntimeError("503 UNAVAILABLE high demand")] * 2)
+    waits = []
+    assert model_client._ask_with_retries(client, "p", sleep=waits.append) == "answer"
+    assert client.models.calls == 3 and waits == [2, 5]
+
+
+def test_it_gives_up_after_the_last_retry():
+    client = FakeClient([RuntimeError("503 UNAVAILABLE")] * 10)
+    with pytest.raises(RuntimeError):
+        model_client._ask_with_retries(client, "p", sleep=lambda s: None)
+    assert client.models.calls == len(model_client.RETRY_WAITS_SECONDS) + 1
+
+
+def test_other_errors_are_not_retried():
+    client = FakeClient([RuntimeError("400 INVALID_ARGUMENT bad key")])
+    with pytest.raises(RuntimeError):
+        model_client._ask_with_retries(client, "p", sleep=lambda s: None)
+    assert client.models.calls == 1

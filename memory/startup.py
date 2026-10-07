@@ -17,6 +17,10 @@ Neo4j constraints and index.
 If a store is not reachable yet, the error is logged and the API still
 starts - /health keeps answering, and the next restart tries again.
 
+It also starts the worker inside the API when RUN_WORKER_IN_API is set -
+for a free host with one web service and no separate background worker
+(memory/worker.py).
+
 Where it is used
 ----------------
 memory/api.py - run once when the API starts (the FastAPI lifespan).
@@ -65,3 +69,9 @@ def prepare_stores() -> None:
         logger.warning("startup: Neo4j constraints and vector index ready")
     except Exception:  # noqa: BLE001
         logger.exception("startup: Neo4j preparation failed")
+
+    # On a free host the worker has no service of its own, so it runs here.
+    from memory import worker
+
+    if worker.runs_in_api():
+        worker.start_in_background()

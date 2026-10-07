@@ -82,7 +82,8 @@ from its repository (`./start-frontend.cmd`), then open http://localhost:3000.
 
 ## Architecture
 
-Two processes and four stores.
+Two processes and four stores. On a free host the worker runs inside the API
+process instead (`RUN_WORKER_IN_API=true`) - same code, one service.
 
 ```
 Web app (frontend repo)        AI surfaces / MCP clients
@@ -174,7 +175,7 @@ Details: [mcp-tools.doc.md](docs/mcp-tools.doc.md).
 |---|---|
 | Event contract | `memory/models.py::Event`, frozen copy `data/schemas/event_v1.json` |
 | Memory fact | `memory/graph.py` - `valid_from`, `valid_to`, `recorded_at`, `confidence`, `status`, `source_event_ids` |
-| Vector | 384 numbers (`all-MiniLM-L6-v2`) on the memory node itself, property `embedding_384`, so deleting the memory deletes its vector |
+| Vector | 384 numbers from the SentenceTransformers model `all-MiniLM-L6-v2` (run with fastembed, no PyTorch), on the memory node itself, property `embedding_384`, so deleting the memory deletes its vector |
 | Context package | `memory/models.py::ContextPackage` |
 | Memory types | `data/memory_types.yaml` (definition, example, counterexample) and `data/policy_registry.yaml` (sensitivity, retention, eligibility) |
 | Retention by region and age | `data/retention_rules.yaml` |
@@ -204,6 +205,7 @@ All in `.env.example`, already matching what `docker compose` starts.
 | `NEO4J_URI` / `NEO4J_USER` / `NEO4J_PASSWORD` | Neo4j |
 | `KAFKA_BOOTSTRAP` | The Kafka / Redpanda address (`localhost:19092` locally) |
 | `KAFKA_USERNAME` / `KAFKA_PASSWORD` / `KAFKA_SASL_MECHANISM` | Only for a hosted Kafka; empty locally |
+| `RUN_WORKER_IN_API` | `true` on a free host: run the worker inside the API instead of as its own service |
 | `DEMO_PASSWORD` | Local testing only: gives `user_001` ... `user_005` this login password. Leave unset on a server |
 
 ---
@@ -212,16 +214,31 @@ All in `.env.example`, already matching what `docker compose` starts.
 
 | Part | Where | How |
 |---|---|---|
-| API, worker, PostgreSQL, Redis | Render | New -> Blueprint -> this repo. [render.yaml](render.yaml) creates all four; type the secrets it asks for |
-| Neo4j | Neo4j AuraDB | put its `neo4j+s://` URI and password into Render (`NEO4J_USER` = `neo4j`) |
-| Kafka | Redpanda Cloud | topics `interaction-events` and `interaction-events-dlq`; put the address, username and password into Render |
-| Frontend | Netlify (or Vercel) | the frontend repo's `netlify.toml`; set `MEMORY_API_BASE_URL` and the same `MEMORY_JWT_SECRET` |
+Everything runs on free plans:
+
+| Part | Where | Setting in Render |
+|---|---|---|
+| API **and worker** (one free web service) | Render - [render.yaml](render.yaml) | `RUN_WORKER_IN_API=true` runs the worker inside the API |
+| PostgreSQL | Neon | `DATABASE_URL` |
+| Redis | any free Redis | `REDIS_URL` (`rediss://` when it uses TLS) |
+| Neo4j | Neo4j AuraDB | `NEO4J_URI`, `NEO4J_PASSWORD` (`NEO4J_USER` = `neo4j`) |
+| Kafka | Redpanda Cloud - topics `interaction-events`, `interaction-events-dlq` | `KAFKA_BOOTSTRAP`, `KAFKA_USERNAME`, `KAFKA_PASSWORD` |
+| Frontend | Netlify (or Vercel) - the frontend repo's `netlify.toml` | there: `MEMORY_API_BASE_URL` and the same `MEMORY_JWT_SECRET` |
+
+Plus `GEMINI_API_KEY` and a new `MEMORY_JWT_SECRET` in Render.
 
 Only settings differ between local and deployed - the code is the same.
-`scripts/setup.py` runs before each deploy and creates the tables and Neo4j
-indexes in the new, empty stores; it is safe to run again. `DEMO_PASSWORD` is
-not set on the server, so no test-user logins exist there - only people who
-sign up.
+
+- **No setup step:** when the API starts it creates the tables, Neo4j
+  constraints and vector index if they are missing (`memory/startup.py`).
+- **Fits the free 512 MB:** about 320 MB with the worker inside, because the
+  embedding model runs without PyTorch (`memory/embeddings.py`).
+- **Gemini busy?** A "503 high demand" answer is retried automatically
+  (2, 5, then 10 seconds) before an event goes to the dead-letter queue.
+- **No test-user logins on the server:** `DEMO_PASSWORD` is not set there,
+  so the only accounts are people who sign up.
+- **Free services sleep** when idle; the first request after a pause can
+  take up to a minute.
 
 ---
 

@@ -21,6 +21,7 @@ Two rules from the specification shape the whole file:
 """
 
 import json
+import time
 import os
 
 from dotenv import load_dotenv
@@ -119,11 +120,7 @@ def propose_candidates(event: dict) -> list[dict]:
 
     try:
         client = genai.Client(api_key=api_key)
-        response = client.models.generate_content(
-            model=MODEL,
-            contents=prompt,
-            config={"response_mime_type": "application/json"},
-        )
+        response = _ask_with_retries(client, prompt)
         parsed = json.loads(response.text)
     except json.JSONDecodeError as exc:
         # A model that returns broken JSON is a model failure, not a
@@ -134,3 +131,36 @@ def propose_candidates(event: dict) -> list[dict]:
 
     candidates = parsed.get("candidates")
     return candidates if isinstance(candidates, list) else []
+
+
+# --- Retrying when Gemini is busy ------------------------------------------
+#
+# Gemini often answers "503 - this model is experiencing high demand" or
+# "429 - too many requests". Both pass in seconds. Without a retry the event
+# went straight to the dead-letter queue and needed someone to run
+# scripts/replay_dead_letters.py - impossible on a free host with no shell.
+# So a busy answer is tried again a few times, waiting a little longer each
+# time, before it counts as a failure.
+
+RETRY_WAITS_SECONDS = (2, 5, 10)
+
+
+# Is this the kind of error that goes away by itself?
+def _is_busy(exc: Exception) -> bool:
+    text = f"{type(exc).__name__} {exc}"
+    return any(sign in text for sign in ("503", "UNAVAILABLE", "429", "RESOURCE_EXHAUSTED"))
+
+
+# Call Gemini, retrying only when it says it is busy.
+def _ask_with_retries(client, prompt, sleep=time.sleep):
+    for wait in (*RETRY_WAITS_SECONDS, None):
+        try:
+            return client.models.generate_content(
+                model=MODEL,
+                contents=prompt,
+                config={"response_mime_type": "application/json"},
+            )
+        except Exception as exc:  # noqa: BLE001
+            if wait is None or not _is_busy(exc):
+                raise
+            sleep(wait)

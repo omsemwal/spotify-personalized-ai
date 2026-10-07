@@ -37,3 +37,28 @@ def test_a_store_that_is_down_does_not_stop_startup(monkeypatch):
     monkeypatch.setattr(startup, "apply_migrations", down)
     monkeypatch.setattr(startup, "prepare_graph", down)
     startup.prepare_stores()   # must not raise
+
+
+# --- The worker inside the API (free hosts) ---------------------------------
+
+from memory import worker  # noqa: E402
+
+
+def test_the_worker_stays_out_of_the_api_by_default(monkeypatch):
+    monkeypatch.delenv("RUN_WORKER_IN_API", raising=False)
+    started = []
+    monkeypatch.setattr(startup, "apply_migrations", lambda: [])
+    monkeypatch.setattr(startup, "prepare_graph", lambda: None)
+    monkeypatch.setattr(worker, "start_in_background", lambda: started.append(1))
+    startup.prepare_stores()
+    assert started == []
+
+
+def test_the_setting_starts_the_worker_inside_the_api(monkeypatch):
+    monkeypatch.setenv("RUN_WORKER_IN_API", "true")
+    started = []
+    monkeypatch.setattr(startup, "apply_migrations", lambda: [])
+    monkeypatch.setattr(startup, "prepare_graph", lambda: None)
+    monkeypatch.setattr(worker, "start_in_background", lambda: started.append(1))
+    startup.prepare_stores()
+    assert started == [1]
