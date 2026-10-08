@@ -183,7 +183,10 @@ def _ask_with_retries(client, prompt, sleep=time.sleep):
                     config={"response_mime_type": "application/json"},
                 )
             except Exception as exc:  # noqa: BLE001
-                if _out_of_quota(exc) and not last_model:
+                # Out of quota, or still busy after every retry: the other
+                # model has its own quota and load, so ask it instead.
+                still_busy = wait is None and _is_busy(exc)
+                if (_out_of_quota(exc) or still_busy) and not last_model:
                     break                      # next model
                 if wait is None or not _is_busy(exc):
                     raise

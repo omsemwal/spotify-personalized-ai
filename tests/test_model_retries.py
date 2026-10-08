@@ -37,11 +37,13 @@ def test_a_busy_model_is_retried_until_it_answers():
     assert client.models.calls == 3 and waits == [2, 5]
 
 
+# Both models busy through every retry: it gives up and the event is
+# dead-lettered.
 def test_it_gives_up_after_the_last_retry():
-    client = FakeClient([RuntimeError("503 UNAVAILABLE")] * 10)
+    client = FakeClient([RuntimeError("503 UNAVAILABLE")] * 20)
     with pytest.raises(RuntimeError):
         model_client._ask_with_retries(client, "p", sleep=lambda s: None)
-    assert client.models.calls == len(model_client.RETRY_WAITS_SECONDS) + 1
+    assert client.models.calls == 2 * (len(model_client.RETRY_WAITS_SECONDS) + 1)
 
 
 def test_other_errors_are_not_retried():
@@ -70,3 +72,24 @@ def test_out_of_quota_moves_to_the_fallback_model(monkeypatch):
     waits = []
     assert model_client._ask_with_retries(Client(), "p", sleep=waits.append) == "answer"
     assert asked == ["main-model", "spare-model"] and waits == []
+
+
+# Still busy after every retry: the fallback model is asked before giving up.
+def test_a_model_busy_after_every_retry_moves_to_the_fallback(monkeypatch):
+    monkeypatch.setattr(model_client, "MODEL", "main-model")
+    monkeypatch.setattr(model_client, "FALLBACK_MODEL", "spare-model")
+    asked = []
+
+    class Models:
+        def generate_content(self, model, **kwargs):
+            asked.append(model)
+            if model == "main-model":
+                raise RuntimeError("503 UNAVAILABLE high demand")
+            return "answer"
+
+    class Client:
+        models = Models()
+
+    assert model_client._ask_with_retries(Client(), "p", sleep=lambda s: None) == "answer"
+    assert asked.count("main-model") == len(model_client.RETRY_WAITS_SECONDS) + 1
+    assert asked[-1] == "spare-model"
