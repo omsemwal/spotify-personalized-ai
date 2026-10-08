@@ -115,6 +115,7 @@ def search(subject_id: str, text: str, limit: int = 10) -> list[dict]:
     Subject-scoped like every read: the index is searched, then filtered
     to this subject before anything is returned (abc.md:119).
     """
+    limit = min(max(limit, 1), 50)
     query = f"""
     CALL db.index.vector.queryNodes('{INDEX_NAME}', $limit, $vector)
     YIELD node AS m, score
