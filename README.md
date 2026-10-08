@@ -265,7 +265,45 @@ versions, and a running worker strengthening the same memory changes them.
 
 ## Screenshots
 
-_To be added: the login page, the seven screens and the listener page._
+Taken from the live site (https://spotifyfrontend11.netlify.app) with a fresh
+demo account.
+
+**Login** - sign up or log in; the page wakes the free backend while you type.
+
+![Login](docs/screenshots/01-login.png)
+
+**Context preview** - one message, *"play something romantic"*: the two memories
+it learned earlier from *"I love Arijit Singh but no heavy metal"*, how they
+ranked, the exact text the AI receives, and matching songs.
+
+![Context preview](docs/screenshots/02-context-preview.png)
+
+**Memory explorer** - everything remembered about this user.
+
+![Memory explorer](docs/screenshots/03-memory-explorer.png)
+
+**Correction & deletion** - pick a memory to correct, expire or delete.
+
+![Correction and deletion](docs/screenshots/04-correction-and-deletion.png)
+
+**Overview** - health, latency, ingestion, fallbacks, deletions. The live
+latency is high because the free host sleeps and the cloud stores sit in other
+regions; locally p95 is about 70 ms.
+
+![Overview](docs/screenshots/05-overview.png)
+
+**Schema & policy** - memory types with examples, retention, allowed fields.
+
+![Schema and policy](docs/screenshots/06-schema-and-policy.png)
+
+**Quality review** - golden-set results (run against the local stores; empty
+on the live site until it is run there).
+
+![Quality review](docs/screenshots/07-quality-review.png)
+
+**Audit trace** - why one answer used the memories it did, with no memory text.
+
+![Audit trace](docs/screenshots/08-audit-trace.png)
 
 ---
 
