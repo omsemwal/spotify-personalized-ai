@@ -18,7 +18,7 @@ valid time, and can be corrected or deleted.
 |---|---|
 | **Live app** | https://spotifyfrontend11.netlify.app |
 | **Live API** | https://spotify-personalized-ai.onrender.com - `/docs`, `/health/stores` |
-| **Demo video** (Google Drive, "anyone with the link can view") | _to be added_ |
+| **Demo video** |https://www.loom.com/share/6507ef7e4ca4416b8781151a5a94a4e1|
 | **Frontend repository** | https://github.com/omsemwal/spotify-fronted |
 
 ---
